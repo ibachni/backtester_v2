@@ -1,0 +1,15 @@
+[project]
+name = "backtester"
+version = "0.0.1"
+description = "Deterministic trading backtester skeleton"
+authors = [ {name = "nicolas"} ]
+requires-python = ">=3.11"
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.scripts]
+bt = "backtester.cli.bt:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
