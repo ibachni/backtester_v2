@@ -29,7 +29,7 @@ Repository directories (canonical):
 - Ports (contracts): backtester/ports/ # Protocols/interfaces only
 - Slices plan: docs/slices.md          # slice references & anchors
 - Tickets: tickets/                    # BT-XXXX.json
-- Fixtures: fixtures/                  # test data (e.g., Parquet slivers)
+- Fixtures: data/fixtures/             # test data (e.g., Parquet slivers)
 - Configs: configs/                    # YAML/JSON config
 - Artifacts: artifacts/                # logs/grep/test outputs per ticket
 
