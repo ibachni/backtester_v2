@@ -204,3 +204,4 @@ make check  # lint + types
 - [ ] Contracts unchanged or ADR merged/linked with migration notes.
 - [ ] Research delta recorded if file/symbols differ from the map.
 - [ ] PR linked to the ticket; CI green; reviewer checklist satisfied.
+- [ ] ticket moved to `ready-for-review`.

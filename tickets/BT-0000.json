@@ -1,0 +1,229 @@
+{
+  "id": "BT-0000",
+  "title": "Bootstrap contracts & backtest CLI skeleton",
+  "type": "feature",
+  "context": {
+    "problem_statement": "We lack a runnable, deterministic skeleton that locks core port boundaries (clock, event bus, data, orders, risk, stores, config/secrets) and a single CLI entrypoint to produce a minimal run artifact. Without these stable interfaces, later slices risk churn and blocked parallelization.",
+    "background": [
+      "ADR-001 Determinism by Default",
+      "ADR-004 Interfaces Before Implementation",
+      "ADR-009 Modular Monolith",
+      "ADR-010 Event Driven Core Loop",
+      "ADR-011 Single-threaded Deterministic Backtests",
+      "Slice Spec: docs/slices/SLICE-0000-bootstrap-and-contracts.md"
+    ],
+    "assumptions": [
+      "Python 3.11+",
+      "Single symbol and venue future slices (not required here)",
+      "No external network calls in this slice"
+    ],
+    "non_goals": [
+      "No concrete market data adapters",
+      "No real order execution or broker integration",
+      "No slippage or latency modeling",
+      "No advanced telemetry/metrics beyond structured log stub",
+      "No persistence beyond manifest + basic log file"
+    ]
+  },
+  "scope": {
+    "includes": [
+      "backtester/cli/bt (entrypoint module)",
+      "backtester/ports/*.py (interface stubs)",
+      "Basic run manifest writer (JSON)",
+      "Minimal structured log line emitter"
+    ],
+    "excludes": [
+      "Real data ingestion adapters",
+      "Order routing implementations",
+      "Risk logic implementation",
+      "Metrics backend / exporters",
+      "Stateful portfolio calculations"
+    ]
+  },
+  "contracts": [
+    {"name": "Clock", "module": "backtester.ports.clock", "signature": "now() -> datetime"},
+    {"name": "EventBus", "module": "backtester.ports.event_bus", "signature": "publish(event: Event) -> None; subscribe(type: type[Event], handler: Callable[[Event], None]) -> None"},
+    {"name": "MarketDataProvider", "module": "backtester.ports.market_data", "signature": "stream_bars(symbol: str) -> Iterable[Bar]"},
+    {"name": "OrderRouter", "module": "backtester.ports.order_router", "signature": "submit(order: Order) -> OrderAck; cancel(client_order_id: str) -> CancelAck"},
+    {"name": "RiskEngine", "module": "backtester.ports.risk_engine", "signature": "pre_trade_check(order: Order, portfolio: Portfolio) -> RiskDecision"},
+    {"name": "SnapshotStore", "module": "backtester.ports.snapshot_store", "signature": "write(snapshot: Snapshot) -> None; latest() -> Snapshot | None"},
+    {"name": "RunManifestStore", "module": "backtester.ports.run_manifest_store", "signature": "init_run(manifest: RunManifest) -> None"},
+    {"name": "PortfolioStore", "module": "backtester.ports.portfolio_store", "signature": "load() -> Portfolio; save(portfolio: Portfolio) -> None"},
+    {"name": "ConfigProvider", "module": "backtester.ports.config_provider", "signature": "get(key: str) -> Any"},
+    {"name": "SecretsProvider", "module": "backtester.ports.secrets_provider", "signature": "get(secret_name: str) -> str"},
+    {"name": "Telemetry", "module": "backtester.ports.telemetry", "signature": "log(event: str, **fields: Any) -> None"}
+  ],
+  "adr": {
+    "needed": false,
+    "reason": "All referenced contracts align with existing ADR principles; no new normative decisions or signature changes to previously accepted ports (initial introduction)."
+  },
+  "acceptance_criteria": [
+    "Running 'bt backtest --noop --out runs/test_run' creates directory with run_manifest.json containing keys: id, timestamp, version, seed.",
+    "Manifest generation is deterministic for fixed seed (same seed -> identical JSON except timestamp).",
+    "All port modules import cleanly under type check (pyright/mypy) with no runtime side effects.",
+    "LOC added (excluding tests + config/CI) <= 300.",
+    "CLI 'bt --help' lists subcommands: backtest, shadow, paper, live.",
+    "pytest -k test_cli_backtest_noop initially fails before implementation due to missing entrypoint (ensures test guards slice)."
+  ],
+  "test_plan": {
+    "unit": [
+      "tests/unit/cli/test_cli_backtest.py::test_cli_backtest_noop_creates_manifest",
+      "tests/unit/ports/test_ports_import.py::test_all_ports_import",
+      "tests/unit/ports/test_contract_shapes.py::test_required_port_signatures"
+    ],
+    "integration": [
+      "tests/integration/run/test_minimal_run_flow.py::test_noop_run_produces_artifacts"
+    ],
+    "e2e": [],
+    "fixtures": [
+      "(none needed — synthetic manifest only)"
+    ],
+    "failing_tests_gwt": {
+      "tests/unit/cli/test_cli_backtest.py::test_cli_backtest_noop_creates_manifest": {
+        "GIVEN": "No run directory exists and CLI installed",
+        "WHEN": "User invokes 'bt backtest --noop --out runs/tmp_noop'",
+        "THEN": "A run_manifest.json file is created with required keys and exit code 0"
+      },
+      "tests/unit/ports/test_ports_import.py::test_all_ports_import": {
+        "GIVEN": "Empty interface stub modules under backtester/ports",
+        "WHEN": "They are imported",
+        "THEN": "No ImportError and attributes referenced exist"
+      },
+      "tests/unit/ports/test_contract_shapes.py::test_required_port_signatures": {
+        "GIVEN": "Declared Protocol classes for each port",
+        "WHEN": "Reflection inspects members",
+        "THEN": "Required method names & arity match ticket signatures"
+      },
+      "tests/integration/run/test_minimal_run_flow.py::test_noop_run_produces_artifacts": {
+        "GIVEN": "A seed and output path",
+        "WHEN": "Invoking noop backtest pipeline",
+        "THEN": "Run directory contains manifest + a log file with at least one JSON log line"
+      }
+    }
+  },
+  "observability": {
+    "logs": ["run_manifest_written", "cli_invocation"],
+    "metrics": ["(defer detailed metrics to later slice)"]
+  },
+  "research_brief": {
+    "seeds": [
+      "argparse", "subparsers", "Protocol", "RunManifest", "telemetry", "determinism seed", "cli entrypoint", "manifest store"
+    ],
+    "excludes": [
+      "**/venv/**", "**/.git/**", "**/__pycache__/**"
+    ],
+    "commands": [
+      "rg -n 'argparse' backtester/",
+      "rg -n 'Protocol' backtester/",
+      "pytest -k noop -q",
+      "wc -l $(git ls-files 'backtester/*.py' 'backtester/ports/*.py' 2>/dev/null) | tail -n1"
+    ],
+    "success": "Map of required files & their planned responsibilities, confirmation no conflicting existing CLI or ports, initial failing tests reproduced."
+  },
+  "links": {
+    "slice_plan": "docs/slices/SLICE-0000-bootstrap-and-contracts.md",
+    "contracts": [
+      "backtester/ports/clock.py",
+      "backtester/ports/event_bus.py",
+      "backtester/ports/market_data.py",
+      "backtester/ports/order_router.py",
+      "backtester/ports/risk_engine.py",
+      "backtester/ports/snapshot_store.py",
+      "backtester/ports/run_manifest_store.py",
+      "backtester/ports/portfolio_store.py",
+      "backtester/ports/config_provider.py",
+      "backtester/ports/secrets_provider.py",
+      "backtester/ports/telemetry.py"
+    ],
+    "adrs": [
+      "adr/001-determinism-by-default.md",
+      "adr/004-interfaces-before-implementation.md",
+      "adr/009-modular-monolith-over-microservices.md",
+      "adr/010-event-driven-core-loop.md",
+      "adr/011-single-threaded-deterministic-backtests.md"
+    ],
+    "failing_tests": [
+      "tests/unit/cli/test_cli_backtest.py",
+      "tests/unit/ports/test_ports_import.py",
+      "tests/unit/ports/test_contract_shapes.py",
+      "tests/integration/run/test_minimal_run_flow.py"
+    ]
+  },
+  "research_findings": {
+    "repro": {
+      "commands": [
+        "grep -Rin 'argparse' backtester/",
+        "grep -Rin 'Protocol' backtester/",
+        "pytest -k noop -q (expected: command not found / no tests yet)",
+        "wc -l $(git ls-files 'backtester/*.py' 'backtester/ports/*.py' 2>/dev/null)"
+      ],
+      "env": {
+        "BT_LOG_LEVEL": "DEBUG"
+      },
+      "dataset": null,
+      "config_hash": "c99ca9050de002caa047b4294e4c3ad95ca4f238",
+      "git_sha": "b51821aa0408d00fb472d920ad9789932e4f3758",
+      "observed": "No CLI entrypoint; no port interfaces; pytest/argparse searches return no hits; python/pytest binaries not yet available in env.",
+      "expected": "Failing tests referencing missing CLI and port symbols once stubs & tests are added."
+    },
+    "files": [
+      {"path": "backtester/cli/bt.py", "symbol": "main", "lines": "1-120 (planned)", "why": "Entry point implementing backtest|shadow|paper|live subcommands & --noop flag", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/clock.py", "symbol": "Clock", "lines": "1-50 (planned)", "why": "Source of deterministic time for runs", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/event_bus.py", "symbol": "EventBus", "lines": "1-80 (planned)", "why": "Core pub/sub contract referenced by engine loop (future)", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/market_data.py", "symbol": "MarketDataProvider", "lines": "1-80 (planned)", "why": "Streaming bars generator contract", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/order_router.py", "symbol": "OrderRouter", "lines": "1-90 (planned)", "why": "Order submission / cancellation contract", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/risk_engine.py", "symbol": "RiskEngine", "lines": "1-70 (planned)", "why": "Pre-trade risk check contract", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/snapshot_store.py", "symbol": "SnapshotStore", "lines": "1-70 (planned)", "why": "Persistence for state snapshots (future recovery)", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/run_manifest_store.py", "symbol": "RunManifestStore", "lines": "1-50 (planned)", "why": "Write initial run manifest in this slice", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/portfolio_store.py", "symbol": "PortfolioStore", "lines": "1-70 (planned)", "why": "Load/save portfolio state (future slices)", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/config_provider.py", "symbol": "ConfigProvider", "lines": "1-40 (planned)", "why": "Access configuration values for engine/CLI", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/secrets_provider.py", "symbol": "SecretsProvider", "lines": "1-40 (planned)", "why": "Retrieve secrets (future live modes)", "last_sha": "b51821a (planned new file)"},
+      {"path": "backtester/ports/telemetry.py", "symbol": "Telemetry", "lines": "1-60 (planned)", "why": "Structured logging facade for manifest + events", "last_sha": "b51821a (planned new file)"}
+    ],
+    "dependencies": [
+      "CLI main() → RunManifestStore.init_run (to write manifest)",
+      "CLI main() → Telemetry.log (emit structured events)",
+      "Future Engine loop (not in this slice) → EventBus.publish/subscribe",
+      "RiskEngine.pre_trade_check ← OrderRouter.submit (future integration)",
+      "MarketDataProvider.stream_bars → EventBus.publish (future)",
+      "Clock.now → used by RunManifest creation timestamp"
+    ],
+    "suspected_causes": [
+      "None (bootstrap slice). Current 'failure' condition is simply absence of required files; implementing stubs resolves.",
+      "Environment missing pytest/python commands locally; ensure dev setup or use python3 binary (next probe)."
+    ],
+    "artifacts": [
+      "artifacts/BT-0000_rg_argparse.txt",
+      "artifacts/BT-0000_rg_protocol.txt",
+      "artifacts/BT-0000_pytest_noop.txt",
+      "artifacts/BT-0000_loc_baseline.txt",
+      "artifacts/BT-0000_git_sha.txt",
+      "artifacts/BT-0000_ticket_hash.txt",
+      "artifacts/BT-0000_import_cli_spec.txt",
+      "artifacts/BT-0000_dummy_log.txt"
+    ],
+    "next_probes": [
+      "Install/activate python & pytest (e.g., python3 -m venv .venv; pip install pytest) to enable failing tests stage.",
+      "Confirm python executable name (python vs python3) on target CI runners.",
+      "Decide manifest schema version field value (e.g., 0 or 1) before implementation to avoid later churn."
+    ],
+    "research_delta": [
+      {"path": "backtester/cli/bt.py", "symbol": "FilesystemRunManifestStore", "lines": "30-44", "why": "Embedded minimal adapter instead of separate file to stay within LOC budget", "last_sha": "b51821aa"},
+      {"path": "backtester/cli/bt.py", "symbol": "JsonlTelemetry", "lines": "46-53", "why": "Telemetry stub colocated for simplicity in slice 0000", "last_sha": "b51821aa"},
+      {"path": "backtester/cli/__init__.py", "symbol": "main", "lines": "1-2", "why": "Expose main for potential console_scripts in future packaging", "last_sha": "b51821aa"}
+    ]
+  },
+  "state": "ready-for-review",
+  "due": "2025-09-23T23:59:00Z",
+  "est_loc_delta": 280,
+  "artifacts": [
+    "artifacts/BT-0000_rg_argparse.txt",
+    "artifacts/BT-0000_rg_protocol.txt",
+    "artifacts/BT-0000_pytest_noop.txt",
+    "artifacts/BT-0000_loc_baseline.txt",
+    "artifacts/BT-0000_git_sha.txt",
+    "artifacts/BT-0000_ticket_hash.txt",
+    "artifacts/BT-0000_import_cli_spec.txt",
+    "artifacts/BT-0000_dummy_log.txt"
+  ]
+}
