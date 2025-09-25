@@ -360,7 +360,7 @@
       }
     ]
   },
-  "state": "ready-for-review",
+  "state": "done",
   "due": "2025-09-23T23:59:00Z",
   "est_loc_delta": 280,
   "artifacts": [

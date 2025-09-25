@@ -157,4 +157,8 @@ Observability
 - [ ] Minimal, readable diff; style/typing clean.
 - [ ] Migration notes included when behavior/config/schema changed.
 
-When all boxes are ticked: Approve and set the ticket state to done.
+When all boxes are ticked: Approve
+
+## 11) Updating Ticket State
+
+**Important** If approve, then set the ticket state to "done".
