@@ -139,29 +139,17 @@ Create `docs/slices/BT-XXXX_implementation_brief.md` with the following sections
 **Diagram style**: show folders/files; **highlight** new or changed items.
 
 - Use `flowchart LR`.
-- Group by subgraphs (e.g., `subgraph backtester/`, `subgraph tests/`).
 - Existing nodes: regular style. **New files**: yellow background. **Modified files**: orange background. **To be deleted**: strike‑through text.
 - Connect nodes with simple arrows to show relationships (e.g., tests → modules they exercise).
+- Ignore tests, tickets, docs, and chatmodes. Focus on the interaction between core code.
 
 **Starter template**:
 ```mermaid
 flowchart LR
   subgraph repo[Repository]
-    subgraph backtester
-      A[backtester/core/]:::dir
-      B[backtester/data/providers/]:::dir
-      B1[backtester/data/providers/base.py]
-    end
-    subgraph tests
-      T1[tests/integration/test_e2e_small_fixture.py]
-    end
-    subgraph tickets
-      K[tickets/BT-XXXX.json]
-    end
-    D[AGENTS.md]
-    P[planner.chatmode.md]
-    R[reviewer.chatmode.md]
-    I[implementer.chatmode.md]
+    A[backtester/core/]:::dir
+    B[backtester/data/providers/]:::dir
+    B1[backtester/data/providers/base.py]
   end
 
   %% Upcoming changes (highlight)
