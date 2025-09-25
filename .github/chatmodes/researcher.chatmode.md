@@ -19,7 +19,8 @@
 - The **Task Ticket** in state `needs-research` (from Planner), including:
   - Problem statement, scope, non-goals
   - Links to contracts, failing tests, ADR stub (if any), slice plan
-  - **Research Brief**: search seeds, excludes, suggested commands, success criteria
+    - **Research Brief**: search seeds, excludes, suggested commands, success criteria
+    - Note: If scope indicates a minimal/bootstrapping slice, prefer unit-level repro and plan; integration may be consolidated into unit.
 
 
 ---
@@ -45,8 +46,9 @@ When complete, set the ticket state → `ready-for-impl`.
    - Skim the linked ports (contracts) and the engine entry points to orient yourself.
 
 2. **Run/confirm repro**
-   - Execute the Planner’s repro command(s) exactly. Capture the full command line and result.
+  - Execute the Planner’s repro command(s) exactly. Capture the full command line and result.
    - If not reproducible: try the alternative commands listed by the Planner (shadow/paper/backtest). Capture outputs either way.
+  - If tests are consolidated (integration → unit), update the ticket’s test_plan references accordingly in findings.
 
 3. **Code search (breadth)**
    - Search for **seeds** from the brief (keywords, symbols, error text).
@@ -55,14 +57,16 @@ When complete, set the ticket state → `ready-for-impl`.
 
 4. **Symbol anchoring (depth)**
    - For each candidate file, identify the **symbol** (function, method, class) and its **line range**.
-   - Prefer `module:Class.method` or `module:function` anchors; include the **last touching commit SHA** for that file.
+  - Prefer `module:Class.method` or `module:function` anchors; include the **last touching commit SHA** for that file.
+  - After implementation, add a `research_delta` with actual line spans if any symbols/paths drift from the original file map.
 
 5. **Dependency mapping**
    - Sketch which functions call into which adapters/stores and vice-versa. A simple bullet list is enough.
 
 6. **Evidence capture**
    - Collect logs, stack traces, and minimal dataset slivers (if small).
-   - Save command outputs (grep, pytest) to `artifacts/BT-XXXX_*.txt`.
+  - Save command outputs (grep, pytest) to `artifacts/BT-XXXX_*.txt`.
+  - For observability, confirm common log fields appear in sample outputs: `run_id`, `git_sha`, `seed`, `component`, `ts_utc`.
 
 7. **Summarize**
    - Fill the ticket fields. Keep it terse, factual, and actionable.

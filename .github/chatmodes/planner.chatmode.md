@@ -100,8 +100,10 @@ Filesystem destinations (canonical):
    - 3–6 testable bullets. Include determinism and any latency budgets (e.g., p95 ≤ 500 ms).
 
 5. **Tests first**
-   - Name tests and their files. Provide GIVEN/WHEN/THEN for each.
-   - Add fixtures needed (paths or minimal samples).
+  - Name tests and their files. Provide GIVEN/WHEN/THEN for each.
+  - Prefer unit tests for bootstrap/minimal slices; consolidate integration when the flow is trivial.
+  - Include a determinism check when applicable (e.g., identical outputs ignoring timestamp/id).
+  - Add fixtures needed (paths or minimal samples).
 
 6. **Observability**
    - Name logs/metrics to add (e.g., `bars_lag`, `order_rtt`, `risk_block_rate`).
@@ -160,7 +162,9 @@ Filesystem destinations (canonical):
   "acceptance_criteria": [
     "Given recorded bars 2024-01-01, when strategy runs, then P&L checksum equals 9b1c…",
     "Decision latency p95 ≤ 500 ms, p99 ≤ 900 ms in shadow/paper",
-    "Idempotent client_order_id prevents duplicate orders on restart"
+    "Idempotent client_order_id prevents duplicate orders on restart",
+    "Repeat-run determinism with same seed: identical outputs ignoring timestamp/id",
+    "Manifest includes a schema_version field"
   ],
   "test_plan": {
     "unit": ["tests/unit/test_router_idempotency.py::test_dup_idempotent_ack"],
@@ -168,7 +172,7 @@ Filesystem destinations (canonical):
     "fixtures": ["fixtures/bars/BTCUSDT_1m_2024-01.parquet"]
   },
   "observability": {
-    "logs": ["run_id", "git_sha", "seed"],
+    "logs": ["run_id", "git_sha", "seed", "component", "ts_utc"],
     "metrics": ["order_rtt", "bars_lag"]
   },
   "research_brief": {

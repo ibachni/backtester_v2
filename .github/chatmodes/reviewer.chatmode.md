@@ -43,7 +43,7 @@
 
 3. **Run/verify**
    - Run the named tests locally if feasible (or review CI output).
-   - Verify determinism/evidence (identical checksums or CSV hashes for repeat runs).
+   - Verify determinism/evidence (identical checksums or CSV hashes for repeat runs). For manifest-only slices, compare outputs ignoring timestamp/id.
    - Skim logs/metrics for the new observability items.
 
 4. **Contracts & ADRs**
@@ -68,12 +68,13 @@
 
 ### Tests & Determinism
 - [ ] Tests added/updated for the root cause and edges (unit/property/integration as planned).
+- [ ] For minimal/bootstrap flows, unit tests may consolidate integration coverage.
 - [ ] Repeat-run determinism confirmed (same seed/data ⇒ same checksum or identical CSV hashes).
 - [ ] No flaky tests (no sleeps/randomness without seeding).
 - [ ] Contract tests (if relevant) pass.
 
 ### Observability & Ops
-- [ ] Structured logs include `run_id`, `git_sha`, `seed`, `ts_utc`, stable reason codes.
+- [ ] Structured logs include `run_id`, `git_sha`, `seed`, `component`, `ts_utc`, stable reason codes.
 - [ ] Metrics named in the ticket are emitted; bounded cardinality.
 - [ ] Snapshot/replay still works when applicable.
 

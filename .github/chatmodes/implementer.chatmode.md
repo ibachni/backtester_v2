@@ -30,7 +30,7 @@
 
 - **Code changes** limited to the slice scope.
 - **Tests** (unit/property/integration/e2e as specified) — failing first, then green.
-- **Observability** (structured logs + metrics named in the ticket).
+- **Observability** (structured logs + metrics named in the ticket). Ensure every log has run_id, git_sha, seed, component, ts_utc.
 - **Docs**: inline docstrings updated; any user-facing docs/examples as needed.
 - **Migration notes** if public behavior or config/schema changes.
 - **Research delta** in the ticket if you deviated from the file map (path, symbol, lines, why).
@@ -53,7 +53,7 @@
 
 3. **Write/adjust tests**
    - Create or wire the **failing tests** from the ticket.
-   - Include determinism checks (same seed/data ⇒ same checksum).
+   - Include determinism checks (same seed/data ⇒ same checksum). For Slice 0000, compare manifests ignoring timestamp and id. Tests consolidated under unit suite.
 
 TODO Failing tests?
 
@@ -178,7 +178,7 @@ Update the ticket’s `research_findings` with **additional entries** or mark ch
 # Run targeted tests (fast inner loop)
 pytest -q -k "idempotent or parity or latency" --maxfail=1
 
-# Determinism check: two identical runs produce identical outputs
+# Determinism check: two identical runs produce identical outputs (ignoring timestamp & id)
 bt backtest --config configs/backtest.yml --from 2024-01-01 --to 2024-01-07 --seed 1234 \
   | tee artifacts/BT-XXXX_run1.txt
 bt backtest --config configs/backtest.yml --from 2024-01-01 --to 2024-01-07 --seed 1234 \

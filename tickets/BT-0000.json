@@ -41,17 +41,61 @@
     ]
   },
   "contracts": [
-    {"name": "Clock", "module": "backtester.ports.clock", "signature": "now() -> datetime"},
-    {"name": "EventBus", "module": "backtester.ports.event_bus", "signature": "publish(event: Event) -> None; subscribe(type: type[Event], handler: Callable[[Event], None]) -> None"},
-    {"name": "MarketDataProvider", "module": "backtester.ports.market_data", "signature": "stream_bars(symbol: str) -> Iterable[Bar]"},
-    {"name": "OrderRouter", "module": "backtester.ports.order_router", "signature": "submit(order: Order) -> OrderAck; cancel(client_order_id: str) -> CancelAck"},
-    {"name": "RiskEngine", "module": "backtester.ports.risk_engine", "signature": "pre_trade_check(order: Order, portfolio: Portfolio) -> RiskDecision"},
-    {"name": "SnapshotStore", "module": "backtester.ports.snapshot_store", "signature": "write(snapshot: Snapshot) -> None; latest() -> Snapshot | None"},
-    {"name": "RunManifestStore", "module": "backtester.ports.run_manifest_store", "signature": "init_run(manifest: RunManifest) -> None"},
-    {"name": "PortfolioStore", "module": "backtester.ports.portfolio_store", "signature": "load() -> Portfolio; save(portfolio: Portfolio) -> None"},
-    {"name": "ConfigProvider", "module": "backtester.ports.config_provider", "signature": "get(key: str) -> Any"},
-    {"name": "SecretsProvider", "module": "backtester.ports.secrets_provider", "signature": "get(secret_name: str) -> str"},
-    {"name": "Telemetry", "module": "backtester.ports.telemetry", "signature": "log(event: str, **fields: Any) -> None"}
+    {
+      "name": "Clock",
+      "module": "backtester.ports.clock",
+      "signature": "now() -> datetime"
+    },
+    {
+      "name": "EventBus",
+      "module": "backtester.ports.event_bus",
+      "signature": "publish(event: Event) -> None; subscribe(type: type[Event], handler: Callable[[Event], None]) -> None"
+    },
+    {
+      "name": "MarketDataProvider",
+      "module": "backtester.ports.market_data",
+      "signature": "stream_bars(symbol: str) -> Iterable[Bar]"
+    },
+    {
+      "name": "OrderRouter",
+      "module": "backtester.ports.order_router",
+      "signature": "submit(order: Order) -> OrderAck; cancel(client_order_id: str) -> CancelAck"
+    },
+    {
+      "name": "RiskEngine",
+      "module": "backtester.ports.risk_engine",
+      "signature": "pre_trade_check(order: Order, portfolio: Portfolio) -> RiskDecision"
+    },
+    {
+      "name": "SnapshotStore",
+      "module": "backtester.ports.snapshot_store",
+      "signature": "write(snapshot: Snapshot) -> None; latest() -> Snapshot | None"
+    },
+    {
+      "name": "RunManifestStore",
+      "module": "backtester.ports.run_manifest_store",
+      "signature": "init_run(manifest: RunManifest) -> None"
+    },
+    {
+      "name": "PortfolioStore",
+      "module": "backtester.ports.portfolio_store",
+      "signature": "load() -> Portfolio; save(portfolio: Portfolio) -> None"
+    },
+    {
+      "name": "ConfigProvider",
+      "module": "backtester.ports.config_provider",
+      "signature": "get(key: str) -> Any"
+    },
+    {
+      "name": "SecretsProvider",
+      "module": "backtester.ports.secrets_provider",
+      "signature": "get(secret_name: str) -> str"
+    },
+    {
+      "name": "Telemetry",
+      "module": "backtester.ports.telemetry",
+      "signature": "log(event: str, **fields: Any) -> None"
+    }
   ],
   "adr": {
     "needed": false,
@@ -68,12 +112,11 @@
   "test_plan": {
     "unit": [
       "tests/unit/cli/test_cli_backtest.py::test_cli_backtest_noop_creates_manifest",
+      "tests/unit/cli/test_cli_backtest.py::test_noop_twice_same_seed_identical_manifest_except_timestamp",
       "tests/unit/ports/test_ports_import.py::test_all_ports_import",
       "tests/unit/ports/test_contract_shapes.py::test_required_port_signatures"
     ],
-    "integration": [
-      "tests/integration/run/test_minimal_run_flow.py::test_noop_run_produces_artifacts"
-    ],
+    "integration": [],
     "e2e": [],
     "fixtures": [
       "(none needed — synthetic manifest only)"
@@ -94,23 +137,37 @@
         "WHEN": "Reflection inspects members",
         "THEN": "Required method names & arity match ticket signatures"
       },
-      "tests/integration/run/test_minimal_run_flow.py::test_noop_run_produces_artifacts": {
-        "GIVEN": "A seed and output path",
-        "WHEN": "Invoking noop backtest pipeline",
-        "THEN": "Run directory contains manifest + a log file with at least one JSON log line"
+      "tests/unit/cli/test_cli_backtest.py::test_noop_twice_same_seed_identical_manifest_except_timestamp": {
+        "GIVEN": "Two noop runs with the same seed",
+        "WHEN": "Comparing manifests ignoring timestamp and id",
+        "THEN": "They are identical"
       }
     }
   },
   "observability": {
-    "logs": ["run_manifest_written", "cli_invocation"],
-    "metrics": ["(defer detailed metrics to later slice)"]
+    "logs": [
+      "run_manifest_written",
+      "cli_invocation"
+    ],
+    "metrics": [
+      "(defer detailed metrics to later slice)"
+    ]
   },
   "research_brief": {
     "seeds": [
-      "argparse", "subparsers", "Protocol", "RunManifest", "telemetry", "determinism seed", "cli entrypoint", "manifest store"
+      "argparse",
+      "subparsers",
+      "Protocol",
+      "RunManifest",
+      "telemetry",
+      "determinism seed",
+      "cli entrypoint",
+      "manifest store"
     ],
     "excludes": [
-      "**/venv/**", "**/.git/**", "**/__pycache__/**"
+      "**/venv/**",
+      "**/.git/**",
+      "**/__pycache__/**"
     ],
     "commands": [
       "rg -n 'argparse' backtester/",
@@ -167,18 +224,90 @@
       "expected": "Failing tests referencing missing CLI and port symbols once stubs & tests are added."
     },
     "files": [
-      {"path": "backtester/cli/bt.py", "symbol": "main", "lines": "1-120 (planned)", "why": "Entry point implementing backtest|shadow|paper|live subcommands & --noop flag", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/clock.py", "symbol": "Clock", "lines": "1-50 (planned)", "why": "Source of deterministic time for runs", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/event_bus.py", "symbol": "EventBus", "lines": "1-80 (planned)", "why": "Core pub/sub contract referenced by engine loop (future)", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/market_data.py", "symbol": "MarketDataProvider", "lines": "1-80 (planned)", "why": "Streaming bars generator contract", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/order_router.py", "symbol": "OrderRouter", "lines": "1-90 (planned)", "why": "Order submission / cancellation contract", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/risk_engine.py", "symbol": "RiskEngine", "lines": "1-70 (planned)", "why": "Pre-trade risk check contract", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/snapshot_store.py", "symbol": "SnapshotStore", "lines": "1-70 (planned)", "why": "Persistence for state snapshots (future recovery)", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/run_manifest_store.py", "symbol": "RunManifestStore", "lines": "1-50 (planned)", "why": "Write initial run manifest in this slice", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/portfolio_store.py", "symbol": "PortfolioStore", "lines": "1-70 (planned)", "why": "Load/save portfolio state (future slices)", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/config_provider.py", "symbol": "ConfigProvider", "lines": "1-40 (planned)", "why": "Access configuration values for engine/CLI", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/secrets_provider.py", "symbol": "SecretsProvider", "lines": "1-40 (planned)", "why": "Retrieve secrets (future live modes)", "last_sha": "b51821a (planned new file)"},
-      {"path": "backtester/ports/telemetry.py", "symbol": "Telemetry", "lines": "1-60 (planned)", "why": "Structured logging facade for manifest + events", "last_sha": "b51821a (planned new file)"}
+      {
+        "path": "backtester/cli/bt.py",
+        "symbol": "main",
+        "lines": "1-120 (planned)",
+        "why": "Entry point implementing backtest|shadow|paper|live subcommands & --noop flag",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/clock.py",
+        "symbol": "Clock",
+        "lines": "1-50 (planned)",
+        "why": "Source of deterministic time for runs",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/event_bus.py",
+        "symbol": "EventBus",
+        "lines": "1-80 (planned)",
+        "why": "Core pub/sub contract referenced by engine loop (future)",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/market_data.py",
+        "symbol": "MarketDataProvider",
+        "lines": "1-80 (planned)",
+        "why": "Streaming bars generator contract",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/order_router.py",
+        "symbol": "OrderRouter",
+        "lines": "1-90 (planned)",
+        "why": "Order submission / cancellation contract",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/risk_engine.py",
+        "symbol": "RiskEngine",
+        "lines": "1-70 (planned)",
+        "why": "Pre-trade risk check contract",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/snapshot_store.py",
+        "symbol": "SnapshotStore",
+        "lines": "1-70 (planned)",
+        "why": "Persistence for state snapshots (future recovery)",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/run_manifest_store.py",
+        "symbol": "RunManifestStore",
+        "lines": "1-50 (planned)",
+        "why": "Write initial run manifest in this slice",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/portfolio_store.py",
+        "symbol": "PortfolioStore",
+        "lines": "1-70 (planned)",
+        "why": "Load/save portfolio state (future slices)",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/config_provider.py",
+        "symbol": "ConfigProvider",
+        "lines": "1-40 (planned)",
+        "why": "Access configuration values for engine/CLI",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/secrets_provider.py",
+        "symbol": "SecretsProvider",
+        "lines": "1-40 (planned)",
+        "why": "Retrieve secrets (future live modes)",
+        "last_sha": "b51821a (planned new file)"
+      },
+      {
+        "path": "backtester/ports/telemetry.py",
+        "symbol": "Telemetry",
+        "lines": "1-60 (planned)",
+        "why": "Structured logging facade for manifest + events",
+        "last_sha": "b51821a (planned new file)"
+      }
     ],
     "dependencies": [
       "CLI main() → RunManifestStore.init_run (to write manifest)",
@@ -208,9 +337,27 @@
       "Decide manifest schema version field value (e.g., 0 or 1) before implementation to avoid later churn."
     ],
     "research_delta": [
-      {"path": "backtester/cli/bt.py", "symbol": "FilesystemRunManifestStore", "lines": "30-44", "why": "Embedded minimal adapter instead of separate file to stay within LOC budget", "last_sha": "b51821aa"},
-      {"path": "backtester/cli/bt.py", "symbol": "JsonlTelemetry", "lines": "46-53", "why": "Telemetry stub colocated for simplicity in slice 0000", "last_sha": "b51821aa"},
-      {"path": "backtester/cli/__init__.py", "symbol": "main", "lines": "1-2", "why": "Expose main for potential console_scripts in future packaging", "last_sha": "b51821aa"}
+      {
+        "path": "backtester/cli/bt.py",
+        "symbol": "FilesystemRunManifestStore.init_run",
+        "lines": "37-44",
+        "why": "Embedded minimal adapter instead of separate file to stay within LOC budget",
+        "last_sha": "HEAD"
+      },
+      {
+        "path": "backtester/cli/bt.py",
+        "symbol": "JsonlTelemetry.log",
+        "lines": "58-76",
+        "why": "Telemetry stub colocated for simplicity; now injects common fields (run_id, git_sha, seed, component, ts_utc)",
+        "last_sha": "HEAD"
+      },
+      {
+        "path": "backtester/cli/bt.py",
+        "symbol": "run_noop",
+        "lines": "92-112",
+        "why": "Writes manifest including schema_version and emits required logs",
+        "last_sha": "HEAD"
+      }
     ]
   },
   "state": "ready-for-review",
