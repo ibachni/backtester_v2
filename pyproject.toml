@@ -5,7 +5,15 @@ description = "Deterministic trading backtester skeleton"
 authors = [ {name = "nicolas"} ]
 requires-python = ">=3.11"
 readme = "README.md"
-license = {text = "MIT"}
+license = "MIT"
+
+[project.optional-dependencies]
+dev = [
+	"pytest>=7.4",
+	"mypy>=1.6",
+	"ruff>=0.6.2",
+	"types-setuptools",
+]
 
 [project.scripts]
 bt = "backtester.cli.bt:main"
@@ -13,3 +21,54 @@ bt = "backtester.cli.bt:main"
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Explicitly control which packages are included to avoid accidental inclusion of top-level folders
+
+[tool.setuptools.packages.find]
+include = ["backtester*"]
+exclude = [
+	"tests*",
+	"docs*",
+	"scripts*",
+	"data*",
+	"runs*",
+	"artifacts*",
+	"configs*",
+	"sample_data*",
+	"tickets*",
+	"adr*",
+	"archive*"
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+  "E", "F", "I",  # pyflakes/pycodestyle/imports
+]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+addopts = "-q -ra"
+testpaths = [
+  "tests",
+]
+
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+disallow_untyped_defs = false
+no_implicit_optional = true
+strict_optional = true
+ignore_missing_imports = true
+exclude = [
+  "^tests/",
+]

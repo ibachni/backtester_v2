@@ -1,0 +1,45 @@
+Metadata-Version: 2.4
+Name: backtester
+Version: 0.0.1
+Summary: Deterministic trading backtester skeleton
+Author: nicolas
+License-Expression: MIT
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+
+Backtester v2 (Slice 0000)
+=========================
+
+Deterministic trading backtester skeleton. This initial slice provides:
+
+- Port interface Protocols (Clock, EventBus, MarketDataProvider, OrderRouter, RiskEngine, SnapshotStore, RunManifestStore, PortfolioStore, ConfigProvider, SecretsProvider, Telemetry)
+- CLI entrypoint `bt` with subcommands: backtest, shadow, paper, live (only `backtest --noop` implemented)
+- Run manifest writer + JSONL telemetry stub.
+
+Quick Start (development)
+------------------------
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e .
+bt backtest --noop --out runs/example --seed 42
+cat runs/example/run_manifest.json
+```
+
+Manifest Fields:
+
+```json
+{
+	"id": "<uuid>",
+	"timestamp": "<UTC ISO>",
+	"version": "0.0.1",
+	"seed": 42,
+	"schema_version": 1,
+	"mode": "noop"
+}
+```
+
+Next Slices:
+------------
+See `docs/slices/` for planned incremental functionality (strategy loop, risk rails, observability, adapters).

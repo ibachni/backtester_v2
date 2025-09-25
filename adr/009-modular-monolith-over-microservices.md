@@ -1,7 +1,7 @@
 # ADR 009: Modular Monolith over Microservices
 
-Status: Accepted  
-Date: 2025-09-23  
+Status: Accepted
+Date: 2025-09-23
 Context Version: 1.0
 
 ## Context
@@ -13,22 +13,22 @@ Adopt a single-process, single-repo modular monolith. Enforce boundaries via exp
 Interfaces (initial set): `DataFeed`, `Broker`, `Storage`, `Clock`, `Strategy`.
 
 ## Consequences
-+ Minimal ops overhead; easy step-through debugging; simpler deterministic replay.  
-+ Shared memory speeds handoff between components.  
++ Minimal ops overhead; easy step-through debugging; simpler deterministic replay.
++ Shared memory speeds handoff between components.
 − Harder horizontal scaling across machines; potential contention if hot loops expand.
 
 ## Alternatives Considered
-*Early microservices*: Rejected due to premature complexity.  
+*Early microservices*: Rejected due to premature complexity.
 *Hybrid (monolith + sidecar)*: Deferred until a clear performance bottleneck emerges.
 
 ## Revisit Criteria
-- Need to process multiple independent venues concurrently with CPU saturation.  
-- Profiling shows contention not solvable with intra-process concurrency primitives.  
+- Need to process multiple independent venues concurrently with CPU saturation.
+- Profiling shows contention not solvable with intra-process concurrency primitives.
 - Requirement for language heterogeneity.
 
 ## Implementation Notes
-- Keep adapter dependencies isolated; avoid leaking heavy libs into core.  
-- Use static type checks to ensure `ports` imports never depend on adapter packages (acyclic).  
+- Keep adapter dependencies isolated; avoid leaking heavy libs into core.
+- Use static type checks to ensure `ports` imports never depend on adapter packages (acyclic).
 - Consider enforcing with a lightweight import graph test.
 
 ## Related

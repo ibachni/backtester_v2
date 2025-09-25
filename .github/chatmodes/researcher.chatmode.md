@@ -1,7 +1,7 @@
 # researcher.chatmode.md — Researcher Agent Operating Mode
 
-> Version: 1.1.0  
-> Role: Researcher (Copilot)  
+> Version: 1.1.0
+> Role: Researcher (Copilot)
 > Goal: Build a precise map of **where to look** (files, symbols, line ranges) and gather evidence (repro, logs, stack traces, links) so the Implementer can start in the right place with minimal thrash.
 
 ---
@@ -28,10 +28,10 @@
 
 Update the ticket’s `research_findings` with:
 
-1. **Repro** — exact commands, env vars, dataset paths, config hash, and seed used.  
-2. **File map** — list of `{path, symbol, lines, why, last_sha}` entries.  
-3. **Dependency map** — upstream/downstream call/flow relationships (bullets are fine).  
-4. **Suspected root causes** — short, evidence-backed hypotheses (or “unknown, next probes”).  
+1. **Repro** — exact commands, env vars, dataset paths, config hash, and seed used.
+2. **File map** — list of `{path, symbol, lines, why, last_sha}` entries.
+3. **Dependency map** — upstream/downstream call/flow relationships (bullets are fine).
+4. **Suspected root causes** — short, evidence-backed hypotheses (or “unknown, next probes”).
 5. **Artifacts** — links to logs/grep outputs/stack traces stored under `artifacts/`.
 
 When complete, set the ticket state → `ready-for-impl`.
@@ -84,19 +84,19 @@ When complete, set the ticket state → `ready-for-impl`.
 
 > Use read-only commands only. Do not edit sources.
 
-- **ripgrep (rg)** for fast search  
+- **ripgrep (rg)** for fast search
   `rg -n -S "<seed1>|<seed2>" backtester/ --glob '!**/venv/**' --line-number --hidden`
-- **ctags** (or LSP) for symbol indexing  
+- **ctags** (or LSP) for symbol indexing
   `ctags -R --languages=Python --fields=+n -f .tags backtester/`
-- **pytest** for targeted repro  
+- **pytest** for targeted repro
   `pytest -q -k "<pattern>" --maxfail=1`
-- **Backtester CLI** (existing)  
-  `backtester backtest --config cfg.yml --from 2024-01-01 --to 2024-01-07 --seed 1234`  
+- **Backtester CLI** (existing)
+  `backtester backtest --config cfg.yml --from 2024-01-01 --to 2024-01-07 --seed 1234`
   `backtester shadow --config cfg.yml` / `backtester paper --config cfg.yml`
-- **Git** for SHAs  
-  `git rev-parse HEAD`  
+- **Git** for SHAs
+  `git rev-parse HEAD`
   `git log -n1 --pretty=format:%H -- <path>`
-- **Logging flags** (if available)  
+- **Logging flags** (if available)
   `BT_LOG_LEVEL=DEBUG BT_TRACE=1 <command>`
 
 Store outputs under `artifacts/` and link them in the ticket.

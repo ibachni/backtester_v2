@@ -6,25 +6,29 @@ Writes a run manifest JSON and emits structured log lines (JSONL) to the run dir
 
 Determinism: For --noop mode we only depend on provided --seed and current UTC timestamp.
 """
+
 from __future__ import annotations
+
 import argparse
 import json
 import sys
 import uuid
-from pathlib import Path
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict
 
+from backtester.ports.clock import Clock  # type: ignore
 from backtester.ports.run_manifest_store import RunManifestStore  # type: ignore
 from backtester.ports.telemetry import Telemetry  # type: ignore
-from backtester.ports.clock import Clock  # type: ignore
 
 MANIFEST_SCHEMA_VERSION = 1
 APP_VERSION = "0.0.1"
 
+
 class SystemClock:
     def now(self):  # type: ignore[override]
         return datetime.now(timezone.utc)
+
 
 class FilesystemRunManifestStore:
     def __init__(self, out_dir: Path):
@@ -34,6 +38,7 @@ class FilesystemRunManifestStore:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         (self.out_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=2))
 
+
 class JsonlTelemetry:
     def __init__(self, out_dir: Path):
         self.out_dir = out_dir
@@ -41,7 +46,11 @@ class JsonlTelemetry:
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
     def log(self, event: str, **fields: Any) -> None:  # type: ignore[override]
-        record: dict[str, Any] = {"ts": datetime.now(timezone.utc).isoformat(), "event": event, **fields}
+        record: dict[str, Any] = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "event": event,
+            **fields,
+        }
         with self._log_path.open("a") as f:
             f.write(json.dumps(record) + "\n")
 
@@ -67,7 +76,13 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def run_noop(clock: Clock, manifest_store: RunManifestStore, telemetry: Telemetry, out: Path, seed: int) -> int:
+def run_noop(
+    clock: Clock,
+    manifest_store: RunManifestStore,
+    telemetry: Telemetry,
+    out: Path,
+    seed: int,
+) -> int:
     run_id = str(uuid.uuid4())
     ts = clock.now().isoformat()
     manifest: Dict[str, Any] = {
@@ -98,6 +113,7 @@ def main(argv: list[str] | None = None) -> int:
         telemetry.log("unimplemented_mode", command=args.command)
         print(f"Mode '{args.command}' not implemented yet", file=sys.stderr)
         return 2
+
 
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(main())

@@ -1,7 +1,7 @@
 # reviewer.chatmode.md — Reviewer Agent Operating Mode
 
-> Version: 1.1.0  
-> Role: Reviewer (Copilot)  
+> Version: 1.1.0
+> Role: Reviewer (Copilot)
 > Goal: Ensure the change meets the ticket’s acceptance criteria, preserves contracts/determinism, and raises quality — with the smallest possible scope.
 
 ---
@@ -105,10 +105,10 @@
 
 ## 7) Lightweight rubric (fast triage)
 
-- **Scope fit (0/1):** PR matches ticket & research map.  
-- **Evidence (0–2):** Tests + determinism + metrics present.  
-- **Safety (0–2):** Contracts stable/ADR present; fail-closed; idempotent at boundaries.  
-- **Quality (0–2):** Typing, style, small diff, clear logs.  
+- **Scope fit (0/1):** PR matches ticket & research map.
+- **Evidence (0–2):** Tests + determinism + metrics present.
+- **Safety (0–2):** Contracts stable/ADR present; fail-closed; idempotent at boundaries.
+- **Quality (0–2):** Typing, style, small diff, clear logs.
 - **Operational (0–1):** Snapshots/replay unaffected; configs sane.
 
 ≥6/8 with no red flags ⇒ approve; else request changes.

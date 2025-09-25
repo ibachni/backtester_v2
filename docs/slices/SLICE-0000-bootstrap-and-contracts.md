@@ -24,7 +24,7 @@ Locks boundaries early (Interfaces-before-Implementation principle) and enables 
 - Repository scaffold & packaging (single top-level package `backtester`).
 - CLI stub `bt` with subcommands: `backtest`, `shadow`, `paper`, `live` (no-op pipelines).
 - Port interfaces (`Protocol`/ABC): `Clock`, `EventBus`, `SnapshotStore`, `RunManifestStore`, `MarketDataProvider`, `OrderRouter`, `RiskEngine`, `PortfolioStore`, `Logger/Telemetry` (initial facade), `ConfigProvider`, `SecretsProvider`.
-- CI pipeline: run unit tests, type checks (mypy/pyright), lint (ruff/flake8), formatting (black/ruff format). 
+- CI pipeline: run unit tests, type checks (mypy/pyright), lint (ruff/flake8), formatting (black/ruff format).
 - ADR references in each port module docstring.
 
 ## Out of Scope

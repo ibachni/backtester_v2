@@ -1,4 +1,5 @@
 import importlib
+
 import pytest
 
 PORT_MODULES = [
@@ -14,6 +15,7 @@ PORT_MODULES = [
     "backtester.ports.secrets_provider",
     "backtester.ports.telemetry",
 ]
+
 
 @pytest.mark.parametrize("module_name", PORT_MODULES)
 def test_all_ports_import(module_name):

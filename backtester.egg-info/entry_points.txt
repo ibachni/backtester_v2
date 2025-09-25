@@ -1,0 +1,2 @@
+[console_scripts]
+bt = backtester.cli.bt:main

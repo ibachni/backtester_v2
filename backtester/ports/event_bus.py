@@ -4,8 +4,11 @@ References: ADR-010 (Event Driven Core Loop).
 
 Contract: Publish/subscribe mechanism for domain events (bars, orders, fills, risk decisions).
 """
+
 from __future__ import annotations
-from typing import Protocol, Callable, Type, Any
+
+from typing import Any, Callable, Protocol, Type
+
 
 class EventBus(Protocol):
     def publish(self, event: Any) -> None:

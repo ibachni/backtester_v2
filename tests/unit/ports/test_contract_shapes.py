@@ -1,6 +1,6 @@
-from typing import get_type_hints, Protocol
 import importlib
 import inspect
+
 import pytest
 
 # Mapping of module -> (ProtocolName, required_methods: {name: arity})
@@ -18,6 +18,7 @@ PORT_PROTOCOLS = {
     "backtester.ports.telemetry": ("Telemetry", {"log": -1}),  # variable kwargs
 }
 
+
 @pytest.mark.parametrize("module_name,meta", PORT_PROTOCOLS.items())
 def test_required_port_signatures(module_name, meta):
     proto_name, methods = meta
@@ -32,4 +33,6 @@ def test_required_port_signatures(module_name, meta):
             sig = inspect.signature(fn)
             # remove self / cls
             params = [p for p in sig.parameters.values() if p.kind == p.POSITIONAL_OR_KEYWORD][1:]
-            assert len(params) == arity, f"{proto_name}.{method_name} expected {arity} args got {len(params)}"
+            assert (
+                len(params) == arity
+            ), f"{proto_name}.{method_name} expected {arity} args got {len(params)}"
