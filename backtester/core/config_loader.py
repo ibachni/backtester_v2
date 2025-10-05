@@ -29,15 +29,15 @@ class ConfigLoader:
 
         return {}
 
-    def validate(self, cfg):
+    def validate(self, cfg) -> None:
         """
         Checks required keys, such as symbols and risk.max_position.
         Why: Fail fast to avoid silent misconfig.
         """
         pass
 
-    def compute_hash(self, cfg):
+    def compute_hash(self, cfg) -> None:
         pass
 
-    def redact(self, cfg, secret_keys):
+    def redact(self, cfg, secret_keys) -> None:
         pass
