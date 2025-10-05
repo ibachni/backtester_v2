@@ -1,0 +1,14 @@
+backtester/cli/bt.py:5:Writes a run manifest JSON and emits structured log lines (JSONL) to the run directory.
+backtester/cli/bt.py:21:from backtester.ports.run_manifest_store import RunManifestStore
+backtester/cli/bt.py:24:MANIFEST_SCHEMA_VERSION = 1
+backtester/cli/bt.py:33:class FilesystemRunManifestStore:
+backtester/cli/bt.py:37:    def init_run(self, manifest: dict[str, Any]) -> None:
+backtester/cli/bt.py:39:        (self.out_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=2))
+backtester/cli/bt.py:80:    clock: Clock, manifest_store: RunManifestStore, telemetry: Telemetry, out: Path, seed: int
+backtester/cli/bt.py:84:    manifest: Dict[str, Any] = {
+backtester/cli/bt.py:89:        "schema_version": MANIFEST_SCHEMA_VERSION,
+backtester/cli/bt.py:92:    manifest_store.init_run(manifest)
+backtester/cli/bt.py:94:    telemetry.log("run_manifest_written", run_id=run_id, path=str(out / "run_manifest.json"))
+backtester/cli/bt.py:104:    manifest_store = FilesystemRunManifestStore(out_dir)
+backtester/cli/bt.py:107:        return run_noop(clock, manifest_store, telemetry, out_dir, args.seed)
+Binary file backtester/cli/__pycache__/bt.cpython-312.pyc matches

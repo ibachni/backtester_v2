@@ -1,0 +1,2 @@
+backtester/ports/config_provider.py:1:"""ConfigProvider Port Interface.
+backtester/ports/config_provider.py:13:class ConfigProvider(Protocol):
