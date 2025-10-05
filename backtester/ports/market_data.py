@@ -13,9 +13,7 @@ from typing import Iterable, Protocol
 class Bar:  # minimal placeholder type
     __slots__ = ("ts", "open", "high", "low", "close", "volume")
 
-    def __init__(
-        self, ts: int, open: float, high: float, low: float, close: float, volume: float
-    ) -> None:
+    def __init__(self, ts, open, high, low, close, volume):
         self.ts = ts
         self.open = open
         self.high = high
