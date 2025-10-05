@@ -1,7 +1,7 @@
 # reviewer.chatmode.md — Reviewer Agent Operating Mode
 
-> Version: 1.1.0  
-> Role: Reviewer (Copilot)  
+> Version: 1.1.0
+> Role: Reviewer (Copilot)
 > Goal: Ensure the change meets the ticket’s acceptance criteria, preserves contracts/determinism, and raises quality — with the smallest possible scope.
 
 ---
@@ -43,7 +43,7 @@
 
 3. **Run/verify**
    - Run the named tests locally if feasible (or review CI output).
-   - Verify determinism/evidence (identical checksums or CSV hashes for repeat runs).
+   - Verify determinism/evidence (identical checksums or CSV hashes for repeat runs). For manifest-only slices, compare outputs ignoring timestamp/id.
    - Skim logs/metrics for the new observability items.
 
 4. **Contracts & ADRs**
@@ -68,12 +68,13 @@
 
 ### Tests & Determinism
 - [ ] Tests added/updated for the root cause and edges (unit/property/integration as planned).
+- [ ] For minimal/bootstrap flows, unit tests may consolidate integration coverage.
 - [ ] Repeat-run determinism confirmed (same seed/data ⇒ same checksum or identical CSV hashes).
 - [ ] No flaky tests (no sleeps/randomness without seeding).
 - [ ] Contract tests (if relevant) pass.
 
 ### Observability & Ops
-- [ ] Structured logs include `run_id`, `git_sha`, `seed`, `ts_utc`, stable reason codes.
+- [ ] Structured logs include `run_id`, `git_sha`, `seed`, `component`, `ts_utc`, stable reason codes.
 - [ ] Metrics named in the ticket are emitted; bounded cardinality.
 - [ ] Snapshot/replay still works when applicable.
 
@@ -105,10 +106,10 @@
 
 ## 7) Lightweight rubric (fast triage)
 
-- **Scope fit (0/1):** PR matches ticket & research map.  
-- **Evidence (0–2):** Tests + determinism + metrics present.  
-- **Safety (0–2):** Contracts stable/ADR present; fail-closed; idempotent at boundaries.  
-- **Quality (0–2):** Typing, style, small diff, clear logs.  
+- **Scope fit (0/1):** PR matches ticket & research map.
+- **Evidence (0–2):** Tests + determinism + metrics present.
+- **Safety (0–2):** Contracts stable/ADR present; fail-closed; idempotent at boundaries.
+- **Quality (0–2):** Typing, style, small diff, clear logs.
 - **Operational (0–1):** Snapshots/replay unaffected; configs sane.
 
 ≥6/8 with no red flags ⇒ approve; else request changes.
@@ -156,4 +157,8 @@ Observability
 - [ ] Minimal, readable diff; style/typing clean.
 - [ ] Migration notes included when behavior/config/schema changed.
 
-When all boxes are ticked: Approve and set the ticket state to done.
+When all boxes are ticked: Approve
+
+## 11) Updating Ticket State
+
+**Important** If approve, then set the ticket state to "done".

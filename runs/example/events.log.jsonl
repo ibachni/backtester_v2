@@ -1,0 +1,2 @@
+{"ts_utc": "2025-09-25T10:20:26.937199+00:00", "event": "cli_invocation", "run_id": "123a8b70-7406-4ff6-b0ba-d42d9bababb7", "git_sha": "29e5f2901056", "seed": 42, "component": "cli.bt", "command": "backtest", "mode": "noop"}
+{"ts_utc": "2025-09-25T10:20:26.937291+00:00", "event": "run_manifest_written", "run_id": "123a8b70-7406-4ff6-b0ba-d42d9bababb7", "git_sha": "29e5f2901056", "seed": 42, "component": "cli.bt", "path": "runs/example/run_manifest.json"}

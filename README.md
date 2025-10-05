@@ -13,7 +13,7 @@ Quick Start (development)
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e .
+pip install -e .[dev]
 bt backtest --noop --out runs/example --seed 42
 cat runs/example/run_manifest.json
 ```
@@ -35,5 +35,8 @@ Next Slices:
 ------------
 See `docs/slices/` for planned incremental functionality (strategy loop, risk rails, observability, adapters).
 
-
-I am testing an edit here.
+Contributing / CI parity
+-----------------------
+- Lint: `ruff check . && ruff format --check .`
+- Types: `mypy .`
+- Tests: `pytest -q`

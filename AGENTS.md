@@ -2,9 +2,9 @@
 
 This document defines how our coding agents collaborate to plan, research, implement, and review features for **Backtester_v2**. Keep it simple, ship thin slices, and protect determinism.
 
-> **Version:** 1.1.0  
-> **Last updated:** 2025-09-22  
-> **DRI:** Nicolas Ibach  
+> **Version:** 1.1.0
+> **Last updated:** 2025-09-22
+> **DRI:** Nicolas Ibach
 > **Change control:** Any change that affects contracts, CI gates, budgets, or repo structure **must** go through an ADR. Minor wording fixes may be edited directly by the DRI.
 
 ---
@@ -18,13 +18,13 @@ This document defines how our coding agents collaborate to plan, research, imple
 
 ## 2) Repo Principles & Global Invariants
 
-1) **Determinism by default** — same code+config+data+seed ⇒ same outputs; log the seed and git SHA.  
-2) **Safety first** — fail-closed; no live orders unless explicitly enabled; global halt/flatten exists.  
-3) **Small slices** — target ≤ 400 LOC per PR; if bigger, justify.  
-4) **Interfaces before code** — lock contracts first; breaking changes require ADR + migration notes.  
-5) **Observability** — structured logs, metrics, run IDs; snapshot/replay.  
-6) **Test pyramid** — property + unit > integration > e2e; every PR raises the test bar.  
-7) **Time & ordering** — UTC internally; strictly increasing market data timestamps; no look-ahead.  
+1) **Determinism by default** — same code+config+data+seed ⇒ same outputs; log the seed and git SHA.
+2) **Safety first** — fail-closed; no live orders unless explicitly enabled; global halt/flatten exists.
+3) **Small slices** — target ≤ 400 LOC per PR; if bigger, justify.
+4) **Interfaces before code** — lock contracts first; breaking changes require ADR + migration notes.
+5) **Observability** — structured logs, metrics, run IDs; snapshot/replay.
+6) **Test pyramid** — property + unit > integration > e2e; every PR raises the test bar.
+7) **Time & ordering** — UTC internally; strictly increasing market data timestamps; no look-ahead.
 8) **I/O policy** — no network in backtests unless `--allow-net` is set.
 
 ---
@@ -49,24 +49,24 @@ This document defines how our coding agents collaborate to plan, research, imple
 
 ## 4) End-to-End Workflow (states & gates)
 
-1) **Idea → Planner**  
-   Planner drafts a **slice & ticket** (links to contract stubs, failing tests, ADR stub, slice plan).  
+1) **Idea → Planner**
+   Planner drafts a **slice & ticket** (links to contract stubs, failing tests, ADR stub, slice plan).
    Ticket state: `draft`.
 
-2) **Planner → Researcher**  
-   Assign ticket to Researcher with a **Research Brief** (search seeds, excludes, success criteria).  
+2) **Planner → Researcher**
+   Assign ticket to Researcher with a **Research Brief** (search seeds, excludes, success criteria).
    Ticket state: `needs-research`.
 
-3) **Researcher → Implementer**  
-   Researcher adds **Research Findings** (below) and sets ticket to `ready-for-impl`.  
+3) **Researcher → Implementer**
+   Researcher adds **Research Findings** (below) and sets ticket to `ready-for-impl`.
    **Gate:** findings complete (repro, file map with line ranges, suspected causes, artifacts).
 
-4) **Implementer → Reviewer**  
-   Implementer delivers code + tests; notes any **Research deltas** (drift from file map).  
+4) **Implementer → Reviewer**
+   Implementer delivers code + tests; notes any **Research deltas** (drift from file map).
    Ticket state: `in-review`.
 
-5) **Reviewer → Done**  
-   Reviewer runs the checklist; if ADR needed, block until merged; then approve.  
+5) **Reviewer → Done**
+   Reviewer runs the checklist; if ADR needed, block until merged; then approve.
    Ticket state: `done`.
 
 **Guardrails:** Researcher **never** edits code; Implementer **never** bypasses locked contracts.
@@ -124,5 +124,3 @@ This document defines how our coding agents collaborate to plan, research, imple
     "failing_tests": ["tests/e2e/test_parity.py::test_mvp_parity"]
   }
 }
-
-

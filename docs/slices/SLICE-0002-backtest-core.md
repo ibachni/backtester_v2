@@ -50,7 +50,7 @@ Multi-symbol, tick data, partial fill lifecycle, derivatives.
 - Property: price monotonicity violation triggers failure in strict mode.
 
 ## Risks / Mitigations
-- Performance regressions → add timing assertion test.  
+- Performance regressions → add timing assertion test.
 - Hidden nondeterminism → isolate RNG seed in slippage component.
 
 ## Follow-ups

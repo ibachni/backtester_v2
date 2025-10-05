@@ -1,0 +1,2 @@
+{"ts": "2025-09-24T19:01:55.043870+00:00", "event": "cli_invocation", "command": "backtest", "mode": "noop", "run_id": "9ec5885f-ff1c-4cab-85de-53111e7e9ae1", "seed": 999}
+{"ts": "2025-09-24T19:01:55.043967+00:00", "event": "run_manifest_written", "run_id": "9ec5885f-ff1c-4cab-85de-53111e7e9ae1", "path": "runs/run1/run_manifest.json"}

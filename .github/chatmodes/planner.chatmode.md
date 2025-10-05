@@ -1,7 +1,7 @@
 # planner.chatmode.md — Planner Agent Operating Mode
 
-> Version: 1.1.0  
-> Role: Planner (Copilot)  
+> Version: 1.1.0
+> Role: Planner (Copilot)
 > Goal: Turn an idea/bug into a minimal, testable **slice(s)** with a clear ticket and locked interfaces — ready for Researcher → Implementer → Reviewer.
 
 ---
@@ -17,10 +17,10 @@
 
 ## 2) Inputs
 
-- Idea/bug description from the DRI.  
-- Existing ADRs and constraints. 
-- Canonical contracts (ports). 
-- SLO/SLA targets (latency, determinism).  
+- Idea/bug description from the DRI.
+- Existing ADRs and constraints.
+- Canonical contracts (ports).
+- SLO/SLA targets (latency, determinism).
 - Known tests/fixtures (if any).
 
 Repository directories (canonical):
@@ -40,8 +40,8 @@ Repository directories (canonical):
 1. **Slice plan** — minimal scope, non-goals, risks.
 2. **Task Ticket(s)** — full skeleton with links (see §6 Template). Prefer multiple tickets if needed.
 3. **Contract stubs** (if new/changed ports) — names + signatures (no impl). Place new/changed stubs under backtester/ports/ and link them in the ticket.
-4. **Failing tests** — names/locations + GIVEN/WHEN/THEN description; stub files if needed.  
-5. **ADR stub** — only if a normative rule or contract changes.  
+4. **Failing tests** — names/locations + GIVEN/WHEN/THEN description; stub files if needed.
+5. **ADR stub** — only if a normative rule or contract changes.
 6. **Research Brief** — search seeds, excludes, commands, success criteria.
 
 On completion set ticket state → **`needs-research`** and assign to Researcher.
@@ -100,8 +100,10 @@ Filesystem destinations (canonical):
    - 3–6 testable bullets. Include determinism and any latency budgets (e.g., p95 ≤ 500 ms).
 
 5. **Tests first**
-   - Name tests and their files. Provide GIVEN/WHEN/THEN for each.
-   - Add fixtures needed (paths or minimal samples).
+  - Name tests and their files. Provide GIVEN/WHEN/THEN for each.
+  - Prefer unit tests for bootstrap/minimal slices; consolidate integration when the flow is trivial.
+  - Include a determinism check when applicable (e.g., identical outputs ignoring timestamp/id).
+  - Add fixtures needed (paths or minimal samples).
 
 6. **Observability**
    - Name logs/metrics to add (e.g., `bars_lag`, `order_rtt`, `risk_block_rate`).
@@ -120,18 +122,18 @@ Filesystem destinations (canonical):
 ## 5) Checklists
 
 ### Planner DoD
-- [ ] Slice is the smallest viable increment (≤ 400 LOC expected).  
-- [ ] Contracts listed; ADR stub added **iff** contracts/norms change.  
-- [ ] Acceptance criteria are concrete and testable.  
-- [ ] Failing tests named and placed (or clear instructions to create).  
-- [ ] Research Brief present (seeds, excludes, commands, success).  
-- [ ] Ticket links: slice plan, contracts, failing tests, ADR stub.  
+- [ ] Slice is the smallest viable increment (≤ 400 LOC expected).
+- [ ] Contracts listed; ADR stub added **iff** contracts/norms change.
+- [ ] Acceptance criteria are concrete and testable.
+- [ ] Failing tests named and placed (or clear instructions to create).
+- [ ] Research Brief present (seeds, excludes, commands, success).
+- [ ] Ticket links: slice plan, contracts, failing tests, ADR stub.
 - [ ] Ticket state set to `needs-research`.
 
 ### Common pitfalls to avoid
-- Vague acceptance criteria (“works”, “fast”).  
-- Over-scoping (multiple symbols/paths when one will do).  
-- Planning implementation details (leave to Implementer).  
+- Vague acceptance criteria (“works”, “fast”).
+- Over-scoping (multiple symbols/paths when one will do).
+- Planning implementation details (leave to Implementer).
 - Forgetting determinism (seed, data window, config hash).
 
 ---
@@ -160,7 +162,9 @@ Filesystem destinations (canonical):
   "acceptance_criteria": [
     "Given recorded bars 2024-01-01, when strategy runs, then P&L checksum equals 9b1c…",
     "Decision latency p95 ≤ 500 ms, p99 ≤ 900 ms in shadow/paper",
-    "Idempotent client_order_id prevents duplicate orders on restart"
+    "Idempotent client_order_id prevents duplicate orders on restart",
+    "Repeat-run determinism with same seed: identical outputs ignoring timestamp/id",
+    "Manifest includes a schema_version field"
   ],
   "test_plan": {
     "unit": ["tests/unit/test_router_idempotency.py::test_dup_idempotent_ack"],
@@ -168,7 +172,7 @@ Filesystem destinations (canonical):
     "fixtures": ["fixtures/bars/BTCUSDT_1m_2024-01.parquet"]
   },
   "observability": {
-    "logs": ["run_id", "git_sha", "seed"],
+    "logs": ["run_id", "git_sha", "seed", "component", "ts_utc"],
     "metrics": ["order_rtt", "bars_lag"]
   },
   "research_brief": {

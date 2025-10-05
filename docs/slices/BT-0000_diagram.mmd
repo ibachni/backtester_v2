@@ -1,0 +1,66 @@
+flowchart LR
+  subgraph repo[Repository]
+    subgraph backtester
+      subgraph cli
+        C1[backtester/cli/bt.py]:::new
+      end
+      subgraph ports
+        P1[clock.py]:::new
+        P2[event_bus.py]:::new
+        P3[market_data.py]:::new
+        P4[order_router.py]:::new
+        P5[risk_engine.py]:::new
+        P6[snapshot_store.py]:::new
+        P7[run_manifest_store.py]:::new
+        P8[portfolio_store.py]:::new
+        P9[config_provider.py]:::new
+        P10[secrets_provider.py]:::new
+        P11[telemetry.py]:::new
+      end
+    end
+    subgraph tests
+      T1[tests/unit/cli/test_cli_backtest.py]
+      T2[tests/unit/ports/test_ports_import.py]
+      T3[tests/unit/ports/test_contract_shapes.py]
+    end
+    subgraph tickets
+      K[tickets/BT-0000.json]
+    end
+    subgraph docs
+      D1[docs/slices/BT-0000_implementation_brief.md]:::new
+      D2[docs/slices/SLICE-0000-bootstrap-and-contracts.md]
+    end
+    A[AGENTS.md]
+  end
+
+  %% Relationships
+  T1 --> C1
+  T2 --> P1
+  T2 --> P2
+  T2 --> P3
+  T2 --> P4
+  T2 --> P5
+  T2 --> P6
+  T2 --> P7
+  T2 --> P8
+  T2 --> P9
+  T2 --> P10
+  T2 --> P11
+  T3 --> P1
+  T3 --> P2
+  T3 --> P3
+  T3 --> P4
+  T3 --> P5
+  T3 --> P6
+  T3 --> P7
+  T3 --> P8
+  T3 --> P9
+  T3 --> P10
+  T3 --> P11
+  K --> C1
+  K --> P7
+  A --> C1
+
+  classDef dir fill:#fff,stroke:#999,stroke-dasharray: 3 3;
+  classDef new fill:#ffec99,stroke:#d4aa00,stroke-width:2px;
+  classDef changed fill:#ffd8a8,stroke:#e67700,stroke-width:2px;

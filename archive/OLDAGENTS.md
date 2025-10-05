@@ -24,9 +24,9 @@ Core Principles (All Personas)
     BUILD AND TEST: Run your build and test commands after changes
 
 
-> **Version:** 1.0.0  
-> **Last updated:** 2025-09-21  
-> **DRI:** Nicolas Ibach 
+> **Version:** 1.0.0
+> **Last updated:** 2025-09-21
+> **DRI:** Nicolas Ibach
 > **Change control:** Any change that affects contracts, CI gates, budgets, or repo structure **must** be proposed via an ADR. Minor wording fixes can be edited directly by the DRI.
 
 
@@ -366,4 +366,3 @@ A change is **Done** when:
 * **Fixture**: versioned, immutable test dataset.
 
 ---
-
