@@ -17,16 +17,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict
 
-from backtester.ports.clock import Clock  # type: ignore
-from backtester.ports.run_manifest_store import RunManifestStore  # type: ignore
-from backtester.ports.telemetry import Telemetry  # type: ignore
+from backtester.ports.clock import Clock
+from backtester.ports.run_manifest_store import RunManifestStore
+from backtester.ports.telemetry import Telemetry
 
 MANIFEST_SCHEMA_VERSION = 1
 APP_VERSION = "0.0.1"
 
 
 class SystemClock:
-    def now(self):  # type: ignore[override]
+    def now(self) -> datetime:
         return datetime.now(timezone.utc)
 
 
@@ -34,7 +34,7 @@ class FilesystemRunManifestStore:
     def __init__(self, out_dir: Path):
         self.out_dir = out_dir
 
-    def init_run(self, manifest: dict[str, Any]) -> None:  # type: ignore[override]
+    def init_run(self, manifest: dict[str, Any]) -> None:
         self.out_dir.mkdir(parents=True, exist_ok=True)
         (self.out_dir / "run_manifest.json").write_text(json.dumps(manifest, indent=2))
 
@@ -45,7 +45,7 @@ class JsonlTelemetry:
         self._log_path = self.out_dir / "events.log.jsonl"
         self.out_dir.mkdir(parents=True, exist_ok=True)
 
-    def log(self, event: str, **fields: Any) -> None:  # type: ignore[override]
+    def log(self, event: str, **fields: Any) -> None:
         record: dict[str, Any] = {
             "ts": datetime.now(timezone.utc).isoformat(),
             "event": event,
@@ -59,7 +59,7 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="bt")
     sub = p.add_subparsers(dest="command", required=True)
 
-    def add_common(sp: argparse.ArgumentParser):
+    def add_common(sp: argparse.ArgumentParser) -> None:
         sp.add_argument("--out", type=Path, required=True, help="Output run directory")
         sp.add_argument("--seed", type=int, default=42, help="Determinism seed")
 
