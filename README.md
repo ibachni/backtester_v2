@@ -33,6 +33,9 @@ bt backtest --noop --out runs/my_run --seed 123
 # Inspect telemetry emitted during the run
 cat runs/my_run/events.log.jsonl
 
+# Apply environment overrides (BT_ prefix, double underscores for nesting)
+BT_RISK__MAX_POSITION=10 BT_SECRETS__API_KEY=topsecret bt backtest --noop --out runs/env_run
+
 # Other modes are stubs today, but share the same flags
 bt shadow --noop --out runs/shadow_probe --seed 99
 ```

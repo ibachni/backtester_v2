@@ -1,0 +1,205 @@
+{
+    "id": "BT-0002",
+    "title": "Implement deterministic single-symbol backtest loop",
+    "type": "feature",
+    "context": {
+        "problem_statement": "Backtester_v2 cannot yet run a deterministic single-symbol backtest. Without a simulated clock tied to the historical bar feed and a loop that hands bars to a strategy, routes its orders through a matcher, and updates accounting, we cannot produce reproducible trades/equity artifacts or validate downstream slices. The CLI `bt backtest` remains a no-op so there is no manifest capturing run metadata, nor guardrails to detect gaps or duplicates in source data. This slice unlocks the foundation required for subsequent strategy, risk, and parity work.",
+        "background": [
+            "ADR-001 Determinism by Default",
+            "ADR-010 Event-Driven Core Loop",
+            "ADR-011 Single-threaded Deterministic Backtests",
+            "ADR-014 Storage (Parquet, logs, snapshots)",
+            "Slice Spec: docs/slices/SLICE-0002-backtest-core.md"
+        ],
+        "assumptions": [
+            "Single BTCUSDT 1m parquet fixture under data/fixtures/bars",
+            "Strategy stub emits deterministic market orders (buy then sell) from config",
+            "Slippage model is constant basis points configured per run (default 0bps)",
+            "Run seed and git SHA captured in manifest and structured logs"
+        ],
+        "non_goals": [
+            "No multi-symbol or tick-level playback",
+            "No partial fills or advanced limit order queue modelling",
+            "No live exchange/network adapters",
+            "No risk rule expansion beyond placeholder risk pass-through"
+        ]
+    },
+    "scope": {
+        "includes": [
+            "backtester/core/backtest_engine.py (new deterministic orchestration loop for single symbol)",
+            "backtester/core/sim_clock.py (bar-driven clock implementation)",
+            "backtester/sim/parquet_feed.py (Parquet loader with strict/gap modes)",
+            "backtester/sim/matcher.py (market order matching with constant slippage)",
+            "backtester/stores/csv_artifact_writer.py (write trades.csv and equity.csv artifacts)",
+            "backtester/cli/backtest.py (wire CLI flag parsing to engine run)"
+        ],
+        "excludes": [
+            "Multi-symbol strategies or adapters",
+            "Asynchronous/event-loop implementations",
+            "Portfolio persistence beyond in-memory snapshot for the run",
+            "Live order routers or network I/O"
+        ]
+    },
+    "contracts": [
+        {
+            "name": "Clock.now",
+            "module": "backtester.ports.clock",
+            "signature": "now() -> datetime"
+        },
+        {
+            "name": "MarketDataProvider.stream_bars",
+            "module": "backtester.ports.market_data",
+            "signature": "stream_bars(symbol: str) -> Iterable[Bar]"
+        },
+        {
+            "name": "EventBus.publish",
+            "module": "backtester.ports.event_bus",
+            "signature": "publish(event: Any) -> None"
+        },
+        {
+            "name": "OrderRouter.submit",
+            "module": "backtester.ports.order_router",
+            "signature": "submit(order: Order) -> OrderAck"
+        },
+        {
+            "name": "PortfolioStore.load/save",
+            "module": "backtester.ports.portfolio_store",
+            "signature": "load() -> Any; save(portfolio: Any) -> None"
+        },
+        {
+            "name": "SnapshotStore.write",
+            "module": "backtester.ports.snapshot_store",
+            "signature": "write(snapshot: Any) -> None"
+        }
+    ],
+    "adr": {
+        "needed": false,
+        "reason": "Slice uses existing clock, data, order, and store ports; only implementations and wiring change."
+    },
+    "acceptance_criteria": [
+        "Given fixtures tests/fixtures/config/backtest_single_symbol.yml and data/fixtures/bars/BTCUSDT_1m_2024-01-02.parquet, when `bt backtest --config tests/fixtures/config/backtest_single_symbol.yml --seed 42` runs twice, then the resulting trades.csv and equity.csv files are byte-identical across runs (SHA256 hashes match) after stripping manifest timestamp.",
+        "Given data/fixtures/bars/BTCUSDT_1m_2024-01-02_duplicate_ts.parquet and CLI flag --strict, when the backtest is executed, then it aborts before writing outputs, raising BarSequenceError, emitting structured log backtest.error, and manifest status equals failed_duplicate_timestamp.",
+        "Given data/fixtures/bars/BTCUSDT_1m_2024-01-02.parquet where the deterministic strategy buys one lot at 2024-01-02T00:03Z and sells at 00:04Z, when the backtest completes, then manifest summary.realized_pnl equals 50.0 and FIFO lot inventory is zero.",
+        "Given data/fixtures/bars/BTCUSDT_1m_2024-01-02_missing_gap.parquet and CLI flag --gap-mode fill-forward, when the backtest completes, then equity.csv includes a synthesized row for each gap minute with previous close carried forward, and manifest summary.gap_fill_count equals the number of inserted rows.",
+        "When any backtest run completes successfully, then structured log backtest.completed includes run_id, seed, bars_processed, fills_executed, and duration_ms, and telemetry metric backtest_duration_ms is recorded."
+    ],
+    "test_plan": {
+        "unit": [
+            "tests/unit/backtest/test_sim_clock.py::test_advances_to_bar_timestamp",
+            "tests/unit/backtest/test_parquet_feed.py::test_strict_mode_duplicate_timestamp_raises",
+            "tests/unit/backtest/test_accounting_fifo.py::test_single_round_trip_realized_pnl"
+        ],
+        "integration": [
+            "tests/integration/backtest/test_single_symbol_market_fill.py::test_replay_produces_identical_artifacts"
+        ],
+        "property_based": [
+            "tests/property/backtest/test_bar_sequence.py::test_monotonic_timestamps_no_backwards"
+        ],
+        "fixtures": [
+            "data/fixtures/bars/BTCUSDT_1m_2024-01-02.parquet",
+            "data/fixtures/bars/BTCUSDT_1m_2024-01-02_duplicate_ts.parquet",
+            "data/fixtures/bars/BTCUSDT_1m_2024-01-02_missing_gap.parquet"
+        ],
+        "failing_tests_gwt": {
+            "tests/unit/backtest/test_sim_clock.py::test_advances_to_bar_timestamp": {
+                "GIVEN": "SimClock initialized at run start and a bar timestamp of 2024-01-02T00:03:00Z from the feed.",
+                "WHEN": "Backtest engine processes the bar and updates the clock before calling strategy.on_bar.",
+                "THEN": "clock.now() returns 2024-01-02T00:03:00Z and strategy sees a monotonic, non-decreasing time series."
+            },
+            "tests/unit/backtest/test_parquet_feed.py::test_strict_mode_duplicate_timestamp_raises": {
+                "GIVEN": "Parquet dataset with a duplicate timestamp row for BTCUSDT 1m.",
+                "WHEN": "Feed loads bars with --strict flag.",
+                "THEN": "BarSequenceError is raised before yielding the offending row and a backtest.bar_gap_detected log is emitted with context."
+            },
+            "tests/unit/backtest/test_accounting_fifo.py::test_single_round_trip_realized_pnl": {
+                "GIVEN": "Portfolio store primed with zero inventory and deterministic buy/sell orders.",
+                "WHEN": "Matcher applies fills with constant slippage.",
+                "THEN": "Realized P&L equals 50.0 and equity snapshot closes flat (position == 0)."
+            },
+            "tests/integration/backtest/test_single_symbol_market_fill.py::test_replay_produces_identical_artifacts": {
+                "GIVEN": "Configured backtest run with seed 42 and BTCUSDT 1m dataset.",
+                "WHEN": "CLI bt backtest executes twice.",
+                "THEN": "trades.csv and equity.csv hashes match across runs and manifest records identical bars_processed counts."
+            },
+            "tests/property/backtest/test_bar_sequence.py::test_monotonic_timestamps_no_backwards": {
+                "GIVEN": "Hypothesis-generated sequences of bar timestamps with potential regressions.",
+                "WHEN": "Property test streams them through the Parquet feed validator.",
+                "THEN": "Any non-monotonic sequence triggers BarSequenceError and shrinking identifies offending subsequence."
+            }
+        }
+    },
+    "observability": {
+        "logs": [
+            "backtest.started",
+            "backtest.bar_gap_detected",
+            "backtest.fill_applied",
+            "backtest.completed",
+            "backtest.error"
+        ],
+        "metrics": [
+            "bars_processed_total",
+            "gap_fill_count",
+            "fills_executed_total",
+            "backtest_duration_ms"
+        ]
+    },
+    "research_brief": {
+        "seeds": [
+            "SimClock",
+            "\"stream_bars\"",
+            "\"orders.csv\"",
+            "FIFO lot",
+            "\"equity.csv\"",
+            "\"backtest completed\""
+        ],
+        "excludes": [
+            "**/venv/**",
+            "**/.git/**",
+            "**/__pycache__/**",
+            "data/raw/**"
+        ],
+        "commands": [
+            "rg -n \"SimClock\" backtester/",
+            "rg -n \"stream_bars\" -g \"*.py\" backtester/",
+            "rg -n \"orders.csv\" backtester/",
+            "pytest -k single_symbol_market_fill -q",
+            "python - <<'PY'\\nfrom decimal import Decimal\\nprint('expect_pnl', Decimal('50.0'))\\nPY"
+        ],
+        "success": "Confirm existing clock/engine placeholders, map CLI entrypoint for backtest command, locate where manifests and CSV artifacts should be written, and capture the failing integration test prior to implementation."
+    },
+    "links": {
+        "slice_plan": "docs/slices/SLICE-0002-backtest-core.md",
+        "contracts": [
+            "backtester/ports/clock.py",
+            "backtester/ports/market_data.py",
+            "backtester/ports/event_bus.py",
+            "backtester/ports/order_router.py",
+            "backtester/ports/portfolio_store.py",
+            "backtester/ports/snapshot_store.py"
+        ],
+        "adrs": [
+            "adr/001-determinism-by-default.md",
+            "adr/010-event-driven-core-loop.md",
+            "adr/011-single-threaded-deterministic-backtests.md",
+            "adr/014-storage-parquet-logs-snapshots.md"
+        ],
+        "failing_tests": [
+            "tests/unit/backtest/test_sim_clock.py",
+            "tests/unit/backtest/test_parquet_feed.py",
+            "tests/unit/backtest/test_accounting_fifo.py",
+            "tests/integration/backtest/test_single_symbol_market_fill.py",
+            "tests/property/backtest/test_bar_sequence.py"
+        ]
+    },
+    "due": "2025-10-13T23:59:00Z",
+    "est_loc_delta": 360,
+    "artifacts": [
+        "artifacts/BT-0002_rg_sim_clock.txt",
+        "artifacts/BT-0002_rg_stream_bars.txt",
+        "artifacts/BT-0002_rg_orders_csv.txt",
+        "artifacts/BT-0002_pytest_single_symbol_market_fill.txt",
+        "artifacts/BT-0002_equity_hash_probe.txt"
+    ],
+    "research_findings": null,
+    "state": "needs-research"
+}

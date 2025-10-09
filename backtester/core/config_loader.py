@@ -7,9 +7,9 @@ from pydantic import ValidationError
 from pydantic.type_adapter import TypeAdapter
 from pydantic_core import ValidationError as CoreValidationError
 
-from backtester.adapters.telemetry.jsonl import JsonlTelemetry
-from backtester.core.models import Config, ReturnConfig
-from backtester.core.utility import deep_merge, validation_error_parser
+from ..ports.telemetry import Telemetry
+from .models import Config, ReturnConfig
+from .utility import deep_merge, validation_error_parser
 
 """
 # TODO: Introduce a dedicated eception family:
@@ -38,8 +38,11 @@ FIELD_TYPE_ADAPTERS = {
 REDACTED = "***REDACTED***"
 HASH_INCLUDES_SECRETS = True  # comment rationale: detects secret drift
 CONFIG_KEYS_COUNT_MODE = "leaf"  # higher computation, more accurate
-NUMERIC_STRING_PATHS: set[tuple[str, ...]] = {("risk", "max_position"), ("runtime", "seed")}
-SECRET_KEYS: list[str] = ["secrets.api_key, secrets.api_secret"]
+NUMERIC_STRING_PATHS: set[tuple[str, ...]] = {
+    ("risk", "max_position"),
+    ("runtime", "seed"),
+}
+SECRET_KEYS: list[str] = ["secrets.api_key", "secrets.api_secret"]
 
 # TODO 1. resolve any remaining errors.
 # TODO 2. Catch errors
@@ -47,7 +50,7 @@ SECRET_KEYS: list[str] = ["secrets.api_key, secrets.api_secret"]
 
 
 class ConfigLoader:
-    def __init__(self, telemetry: JsonlTelemetry) -> None:
+    def __init__(self, telemetry: Telemetry) -> None:
         # TODO: different JsonlTelemetry instances for different types of logs!
         self.telemetry = telemetry
 
@@ -83,20 +86,31 @@ class ConfigLoader:
                 step="defaults_validation",
                 errors=parsed_error,
             )
-            print(e)
+            missing_paths = sorted(
+                {
+                    error["path"]
+                    for error in parsed_error
+                    if error.get("error_type") == "missing"
+                    or error.get("message", "").lower().startswith("field required")
+                }
+            )
+            if missing_paths:
+                joined = ", ".join(missing_paths)
+                raise KeyError(f"Missing required config key(s): {joined}") from e
+            raise
 
         for layer in [file_cfg, env_cfg, cli_overrides]:
             if layer is not None:
                 config = deep_merge(config, layer)
 
         # 2. Pass merged into normalization
-        self._validate(config)
+        self._validate(config, check_required=True)
         config = self._normalize_config(config)
 
         # 3. Feed validated config
-
         internal_config: Mapping[str, Any] = self._sort_mapping(config)
         # hash the sorted and non-redacted config
+
         config_hash: str = self.compute_hash(internal_config)
         secret_keys = SECRET_KEYS if secret_paths is None else secret_paths
         # create redacted version
@@ -106,9 +120,20 @@ class ConfigLoader:
         # count leafs
         config_keys_total: int = len(self._collect_leaves(internal_config))
 
+        self.telemetry.log(
+            event="config_resolved",
+            config_hash=config_hash,
+            hash_includes_secrets=True,
+            redacted_config=redacted_config[0],
+            redacted_count=redacted_config[1],
+            config_keys_total=config_keys_total,
+            unexpected_keys_detected=False,
+        )
+
         return ReturnConfig(
             internal_config=internal_config,
             redacted_config=redacted_config[0],
+            redacted_count=redacted_config[1],
             config_hash=config_hash,
             config_keys_total=config_keys_total,
         )
@@ -212,7 +237,7 @@ class ConfigLoader:
                             {
                                 "code": "CFG-003",
                                 "path": None,
-                                "message": f"Symbol not a string: {', '.join(symbol)}",
+                                "message": f"Symbol not a string: {symbol!r}",
                                 "keys": symbol,
                             }
                         ],
@@ -228,9 +253,7 @@ class ConfigLoader:
                             {
                                 "code": "CFG-003",
                                 "path": None,
-                                "message": f"Symbol must not contain blank entries: {
-                                    ', '.join(symbol)
-                                }",
+                                "message": f"Symbol must not contain blank entries: {symbol!r}",
                                 "keys": symbol,
                             }
                         ],
@@ -340,12 +363,20 @@ class ConfigLoader:
                     count += 1
         return redacted_cfg, count
 
-    def _collect_leaves(self, tree: Mapping[str, Any]) -> list[Any]:
-        # Depth first: recursive traversal to visit any node
+    def _collect_leaves(
+        self, tree: Mapping[str, Any], *, _prefix: tuple[str, ...] = ()
+    ) -> list[str]:
+        """
+        Return flattened key paths for every non-mapping value in ``tree``.
+
+        Lists, scalars, and other primitives count as a single leaf keyed by the full
+        dotted path (e.g. ``("risk", "max_position")`` → ``"risk.max_position"``).
+        """
         leaves: list[str] = []
-        for value in tree.values():
-            if isinstance(value, dict):
-                leaves.extend(self._collect_leaves(value))
+        for key, value in tree.items():
+            path = _prefix + (str(key),)
+            if isinstance(value, Mapping):
+                leaves.extend(self._collect_leaves(value, _prefix=path))
             else:
-                leaves.append(value)
+                leaves.append(".".join(path))
         return leaves

@@ -1,6 +1,6 @@
 import json
 
-from backtester.adapters.telemetry.jsonl import JsonlTelemetry
+from backtester.adapters.jsonl import JsonlTelemetry
 
 
 def _read_single_record(path):
@@ -22,7 +22,7 @@ def test_JsonLTelemtry_initialization(tmp_path):
     init.log("config_resolved", keys_total=3)
     record = _read_single_record(sink)
     assert record["event"] == "config_resolved"
-    assert record["run_id"] == "run-2"
+    assert record["run_id"] == "run_2"
     assert record["git_sha"] == "abc123def456"
     assert record["seed"] == 12
     assert record["keys_total"] == 3

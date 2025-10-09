@@ -110,8 +110,7 @@
         ],
         "metrics": [
             "config_keys_total",
-            "secrets_lookups_total",
-            "config_hash_compute_ms"
+            "secrets_lookups_total"
         ]
     },
     "research_brief": {

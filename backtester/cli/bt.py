@@ -11,22 +11,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import subprocess
 import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Mapping
+from typing import Any, Callable, Dict, Mapping, Optional
 
-from backtester.adapters.telemetry.jsonl import JsonlTelemetry
+from backtester.adapters.jsonl import JsonlTelemetry
 from backtester.core.config_loader import ConfigLoader
 from backtester.core.models import Config
+from backtester.core.other import insert_path
 from backtester.ports.clock import Clock
 from backtester.ports.run_manifest_store import RunManifestStore
 from backtester.ports.telemetry import Telemetry
 
 MANIFEST_SCHEMA_VERSION = 1
 APP_VERSION = "0.0.1"
+ENV_PREFIX = "BT_"
 
 
 class SystemClock:
@@ -61,6 +64,15 @@ def build_parser() -> argparse.ArgumentParser:
         """Add arguments shared across all subcommands."""
         sp.add_argument("--out", type=Path, required=True, help="Output run directory")
         sp.add_argument("--seed", type=int, default=42, help="Determinism seed")
+        sp.add_argument("--config", type=Path, required=False, help="Path to config overrides")
+        sp.add_argument(
+            "--set",
+            dest="config_overrides",
+            action="append",  # builds a Python list (config_overrides) containing each key=value
+            default=[],
+            metavar="KEY=VALUE",
+            help="Override a config entry (may be repeated)",
+        )
 
     # backtest
     bt = sub.add_parser("backtest", help="Run a backtest pipeline")
@@ -75,11 +87,53 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
+def _collect_env_config(
+    environ: Mapping[str, str], *, prefix: str = ENV_PREFIX
+) -> Mapping[str, Any] | None:
+    """
+    Translate environment variables with ``prefix`` into a nested mapping.
+
+    Uses ``__`` as the segment separator (e.g. ``BT_RISK__MAX_POSITION`` →
+    ``{"risk": {"max_position": value}}``). Returns ``None`` when no overrides
+    are detected so callers can skip the layer entirely.
+    """
+    overrides: Dict[str, Any] = {}
+    for raw_key, raw_value in environ.items():
+        if not raw_key.startswith(prefix):
+            continue
+        stripped = raw_key[len(prefix) :]
+        if not stripped:
+            continue
+        segments = [segment.lower() for segment in stripped.split("__") if segment]
+        if not segments:
+            continue
+        cursor: Dict[str, Any] = overrides
+        for segment in segments[:-1]:
+            cursor = cursor.setdefault(segment, {})
+        cursor[segments[-1]] = raw_value
+    return overrides or None
+
+
+def _parse_cli_overrides(pairs: list[str]) -> Mapping[str, Any]:
+    overrides: dict[str, Any] = {}
+
+    for item in pairs:
+        key, sep, value = item.partition("=")
+        if sep == "":
+            raise ValueError(f"--set requires KEY=VALUE format (got {item!r})")
+
+        insert_path(overrides, key, value)  # use helper to expand dotted keys
+
+    return overrides
+
+
 def run_noop(
     clock: Clock,
     manifest_store: RunManifestStore,
     out: Path,
     seed: int,
+    file_config: Optional[Path] = None,
+    config_overrides: Optional[list[str]] = None,
     *,
     # allows for the injection of different telemetry implementations
     telemetry_factory: Callable[[str, Path, int, str], Telemetry] | None = None,
@@ -104,39 +158,63 @@ def run_noop(
     )
 
     # TODO: Make canonical form!
-
     # Assemble manifest dict with metadata, etc.
+    # 1. Default
+    # TODO Eventuall store defaults in a file (YAML, TOML)
+    config_loader = ConfigLoader(telemetry)
+    defaults = Config().model_dump()
+    # 2. file config
+    # TODO TEST (does that work?)
+    if file_config:
+        raw_text = Path(file_config).read_text()
+        file_cfg: Mapping[str, Any] = json.loads(raw_text)
+        if not isinstance(file_cfg, Mapping):
+            telemetry.log(
+                event="File_cfg non confirming",
+                layer="Parse file cfg in run_noop",
+                error=[
+                    {
+                        "code": "placeholder",
+                        "path": file_config,
+                        "message": "file_cfg is not a mapping",
+                    }
+                ],
+            )
+            raise TypeError("--config must deserialize to an object/dictionary")
+    else:
+        file_cfg = {}
 
-    # Instantiate ConfigLoader and call package_results with required arguments
-    if type(telemetry) is JsonlTelemetry:
-        config_loader = ConfigLoader(telemetry)
-        config = Config().model_dump()
+    # 3. Environment config via BT_ prefixed variables
+    env_cfg = _collect_env_config(os.environ, prefix=ENV_PREFIX)
 
-        # Provide dummy/default values for file_cfg, env_cfg, cli_overrides as needed
-        # TODO Inject file_cfg, env_cfg, CLI
-        file_cfg: Mapping[str, Any] = {}
-        env_cfg: Mapping[str, Any] = {}
-        cli_overrides: Mapping[str, Any] = {}
-        return_config = config_loader.resolve(
-            defaults=config, file_cfg=file_cfg, env_cfg=env_cfg, cli_overrides=cli_overrides
-        )
+    # 4. CLI Overrides
+    if config_overrides:
+        cli_overrides: Mapping[str, Any] = _parse_cli_overrides(config_overrides)
+    else:
+        cli_overrides = {}
 
-        manifest: Dict[str, Any] = {
-            "id": run_id,
-            "timestamp": ts,
-            "version": APP_VERSION,
-            "seed": seed,
-            "schema_version": MANIFEST_SCHEMA_VERSION,
-            "mode": "noop",
-            "redacted_config": return_config.redacted_config,
-            "config_hash": return_config.config_hash,
-            "config_keys_total": return_config.config_keys_total,
-        }
-        #
-        manifest_store.init_run(manifest)
+    resolved = config_loader.resolve(
+        defaults=defaults,
+        file_cfg=file_cfg,
+        env_cfg=env_cfg,
+        cli_overrides=cli_overrides,
+    )
 
-        telemetry.log("cli_invocation", command="backtest", mode="noop")
-        telemetry.log("run_manifest_written", path=str(out / "run_manifest.json"))
+    manifest: Dict[str, Any] = {
+        "id": run_id,
+        "timestamp": ts,
+        "version": APP_VERSION,
+        "seed": seed,
+        "schema_version": MANIFEST_SCHEMA_VERSION,
+        "mode": "noop",
+        "redacted_config": resolved.redacted_config,
+        "config_hash": resolved.config_hash,
+        "config_keys_total": resolved.config_keys_total,
+    }
+    manifest_store.init_run(manifest)
+
+    telemetry.log("cli_invocation", command="backtest", mode="noop")
+    telemetry.log("run_manifest_written", path=str(out / "run_manifest.json"))
     return 0
 
 
@@ -150,7 +228,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # running the "noop" pipeline
     if args.command == "backtest" and getattr(args, "noop", False):
-        return run_noop(clock, manifest_store, out_dir, args.seed)
+        return run_noop(clock, manifest_store, out_dir, args.seed, args.config_overrides)
 
     # Logs that requested mode is not implemented and exists with error
     else:

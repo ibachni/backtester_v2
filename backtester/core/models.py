@@ -15,22 +15,14 @@ class RiskConfig(BaseModel):
 class SecretsConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
     api_key: str = Field(default="api_key_string", description="api placeholder")
+    api_secret: str | None = Field(default=None, description="api secret placeholder")
 
 
 class Config(BaseModel):
-    # TODO
     model_config = ConfigDict(extra="forbid")
     symbols: list[str] = Field(default=["BTCUSDT"], description="List of symbols")
-    # risk: RiskConfig
-    # runtime: RuntimeConfig  # if/when you add it
-    # secrets: SecretsConfig
-
-    # 1. Risk section (slice 1)
-    risk_max_position: int = Field(default=4, ge=0, description="max simultaneous positions")
-    risk_allowed_symbols: list[str] = Field(
-        default=["BTCUSDT"], description="Double check list of symbols"
-    )
-    secrets_api_key: str = Field(default="api_key_string", description="api placeholder")
+    risk: RiskConfig = Field(default_factory=RiskConfig, description="Risk parameters")
+    secrets: SecretsConfig = Field(default_factory=SecretsConfig, description="Secrets config")
 
     # 2. Runtime control
     # runtime.mode
@@ -97,5 +89,6 @@ class Config(BaseModel):
 class ReturnConfig:
     internal_config: Mapping[str, Any]
     redacted_config: Mapping[str, Any]
+    redacted_count: int
     config_hash: str
     config_keys_total: int

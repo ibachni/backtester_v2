@@ -185,7 +185,7 @@ Filesystem destinations (canonical):
     "success": "Repro exists; file map with symbols+line ranges; suspected cause(s) with evidence."
   },
   "links": {
-    "slice_plan": "docs/slices.md#slice-…",
+    "slice_plan": "docs/slices/BT-XXXX-Name.md",
     "contracts": ["backtester/ports/order_router.py"],
     "adrs": ["adr/011-order-idempotency.md"],
     "failing_tests": ["tests/unit/test_router_idempotency.py"]
