@@ -13,7 +13,7 @@ def deep_merge(a: Mapping[str, Any], b: Mapping[str, Any]) -> Mapping[str, Any]:
     return out
 
 
-def validation_error_parser(error: ValidationError):
+def validation_error_parser(error: ValidationError) -> list[dict[str, str]]:
     parsed_error = [
         {
             "component": "config.schema.defaults",

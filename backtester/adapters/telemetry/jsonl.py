@@ -38,7 +38,7 @@ class JsonlTelemetry:
         self._sink_path = sink_path if isinstance(sink_path, Path) else Path(sink_path)
         self._secret_keys = secret_keys
 
-    def log(self, event: str, **fields) -> None:
+    def log(self, event: str, **fields: Any) -> None:
         extras = dict(fields)
 
         # Tagging telemetry events with their subsystem (origin)

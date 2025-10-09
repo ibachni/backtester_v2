@@ -16,10 +16,11 @@ import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, Mapping
 
 from backtester.adapters.telemetry.jsonl import JsonlTelemetry
-from backtester.core.config_loader import Config, ConfigLoader
+from backtester.core.config_loader import ConfigLoader
+from backtester.core.models import Config
 from backtester.ports.clock import Clock
 from backtester.ports.run_manifest_store import RunManifestStore
 from backtester.ports.telemetry import Telemetry
@@ -113,9 +114,9 @@ def run_noop(
 
         # Provide dummy/default values for file_cfg, env_cfg, cli_overrides as needed
         # TODO Inject file_cfg, env_cfg, CLI
-        file_cfg = {}
-        env_cfg = {}
-        cli_overrides = {}
+        file_cfg: Mapping[str, Any] = {}
+        env_cfg: Mapping[str, Any] = {}
+        cli_overrides: Mapping[str, Any] = {}
         return_config = config_loader.resolve(
             defaults=config, file_cfg=file_cfg, env_cfg=env_cfg, cli_overrides=cli_overrides
         )

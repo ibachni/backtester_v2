@@ -55,7 +55,9 @@ Next Slices:
 See `docs/slices/` for planned incremental functionality (strategy loop, risk rails, observability, adapters).
 
 Contributing / CI parity
------------------------
-- Lint: `ruff check . && ruff format --check .`
-- Types: `mypy .`
+------------------------
+- Install hooks once: `pre-commit install && pre-commit install --hook-type pre-push`
+- Commit hook: runs `ruff` auto-fixes on staged files
+- Push hook + CI: runs `ruff check .`, `ruff format --check .`, `mypy .`
+- Manual spot-check: `pre-commit run --hook-stage pre-push --all-files`
 - Tests: `pytest -q`
