@@ -61,7 +61,7 @@
     },
     "acceptance_criteria": [
         "Given identical defaults+file+env+CLI inputs (order of --set flags arbitrary), when computing the config hash with same seed, then the hash is identical (deterministic, stable key ordering).",
-        "Given a config file missing required key 'symbols', when loader validates, then it raises ValueError containing 'symbols'.",
+        "Given a config file missing required key 'symbols', when loader validates, then it raises KeyError containing 'symbols'.",
         "Given a secret value (API key) provided via SecretsProvider referenced in config, when manifest is written, then the secret appears redacted (***REDACTED***) and is never logged in plaintext.",
         "Given precedence defaults<file<env<CLI, when the same key appears in multiple layers, then final value equals the highest-precedence layer (verified by test for 'risk.max_position').",
         "Given two runs with same seed & identical effective config, when manifests are compared ignoring timestamp & run id, then they are byte-identical and include 'config_hash' field."

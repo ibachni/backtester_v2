@@ -1,2 +1,10 @@
 {"ts_utc": "2025-09-25T10:20:26.937199+00:00", "event": "cli_invocation", "run_id": "123a8b70-7406-4ff6-b0ba-d42d9bababb7", "git_sha": "29e5f2901056", "seed": 42, "component": "cli.bt", "command": "backtest", "mode": "noop"}
 {"ts_utc": "2025-09-25T10:20:26.937291+00:00", "event": "run_manifest_written", "run_id": "123a8b70-7406-4ff6-b0ba-d42d9bababb7", "git_sha": "29e5f2901056", "seed": 42, "component": "cli.bt", "path": "runs/example/run_manifest.json"}
+{"command":"backtest","event":"cli_invocation","git_sha":"7c998a941344afa0edfe15db7f355bb58e9d55a9","mode":"noop","run_id":"095155b5-f64f-4ce7-8d33-b471617e35e9","seed":42,"ts_utc":"clock"}
+{"event":"run_manifest_written","git_sha":"7c998a941344afa0edfe15db7f355bb58e9d55a9","path":"runs/example/run_manifest.json","run_id":"095155b5-f64f-4ce7-8d33-b471617e35e9","seed":42,"ts_utc":"clock"}
+{"command":"shadow","event":"unimplemented_mode","git_sha":"7c998a941344afa0edfe15db7f355bb58e9d55a9","run_id":"bootstrap","seed":42,"ts_utc":"clock"}
+{"command":"backtest","event":"unimplemented_mode","git_sha":"7c998a941344afa0edfe15db7f355bb58e9d55a9","run_id":"bootstrap","seed":42,"ts_utc":"clock"}
+{"command":"backtest","event":"cli_invocation","git_sha":"7c998a941344afa0edfe15db7f355bb58e9d55a9","mode":"noop","run_id":"b3723585-ed05-4eeb-aa42-a6b021b54f63","seed":42,"ts_utc":"clock"}
+{"event":"run_manifest_written","git_sha":"7c998a941344afa0edfe15db7f355bb58e9d55a9","path":"runs/example/run_manifest.json","run_id":"b3723585-ed05-4eeb-aa42-a6b021b54f63","seed":42,"ts_utc":"clock"}
+{"command":"backtest","event":"cli_invocation","git_sha":"7c998a941344afa0edfe15db7f355bb58e9d55a9","mode":"noop","run_id":"0b607955-c0fe-47d9-85fe-10b7adaeca92","seed":42,"ts_utc":"clock"}
+{"event":"run_manifest_written","git_sha":"7c998a941344afa0edfe15db7f355bb58e9d55a9","path":"runs/example/run_manifest.json","run_id":"0b607955-c0fe-47d9-85fe-10b7adaeca92","seed":42,"ts_utc":"clock"}

@@ -1,8 +1,20 @@
 {
-  "id": "123a8b70-7406-4ff6-b0ba-d42d9bababb7",
-  "timestamp": "2025-09-25T10:20:26.936938+00:00",
+  "id": "0b607955-c0fe-47d9-85fe-10b7adaeca92",
+  "timestamp": "2025-10-09T16:38:55.001341+00:00",
   "version": "0.0.1",
   "seed": 42,
   "schema_version": 1,
-  "mode": "noop"
+  "mode": "noop",
+  "redacted_config": {
+    "risk_allowed_symbols": [
+      "BTCUSDT"
+    ],
+    "risk_max_position": 4,
+    "secrets_api_key": "api_key_string",
+    "symbols": [
+      "BTCUSDT"
+    ]
+  },
+  "config_hash": "82ca28b6e6c2f754b85ddc712c5c364fa51acb1b516524d78d4fb65253da5815",
+  "config_keys_total": 4
 }
