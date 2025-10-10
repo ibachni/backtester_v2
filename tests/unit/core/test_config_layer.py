@@ -9,6 +9,46 @@ from backtester.core.config_loader import ConfigLoader
 from backtester.core.models import Config
 
 
+def test_config_loader_init():
+    pass
+
+
+def test_deep_merge():
+    # test deep merge
+    pass
+
+
+def test_resolve():
+    # 1. Fail ValidationError
+    # 2. check_error and written telemetry
+    # 3. Check deep Merge
+    pass
+
+
+def test_validate():
+    pass
+
+
+def test_normalize_config():
+    pass
+
+
+def test_compute_hash():
+    pass
+
+
+def test_sort_mapping():
+    pass
+
+
+def test_redact():
+    pass
+
+
+def test_collect_leaves():
+    pass
+
+
 @dataclass
 class StubTelemetry:
     events: List[Tuple[str, Dict[str, Any]]] = field(default_factory=list)
@@ -36,13 +76,12 @@ def test_config_precedence_simple_key() -> None:
     defaults = Config().model_dump()
     defaults["risk"]["max_position"] = 1
     file_cfg = {"risk": {"max_position": 2}}
-    env_cfg = {"risk": {"max_position": 3}}
+    # env_cfg = {"risk": {"max_position": 3}}
     cli_overrides = {"risk": {"max_position": 4}}
 
     resolved = loader.resolve(
         defaults=defaults,
         file_cfg=file_cfg,
-        env_cfg=env_cfg,
         cli_overrides=cli_overrides,
     )
 
@@ -59,7 +98,7 @@ def test_invalid_required_key_raises() -> None:
     defaults.pop("symbols")
 
     with pytest.raises(KeyError) as excinfo:
-        loader.resolve(defaults=defaults, file_cfg=None, env_cfg=None, cli_overrides=None)
+        loader.resolve(defaults=defaults, file_cfg=None, cli_overrides=None)
 
     assert "symbols" in str(excinfo.value)
 
@@ -75,7 +114,7 @@ def test_secrets_redacted_in_manifest() -> None:
     resolved = loader.resolve(
         defaults=defaults,
         file_cfg=None,
-        env_cfg=None,
+        # env_cfg=None,
         cli_overrides=cli_overrides,
     )
 
@@ -95,14 +134,14 @@ def test_config_hash_determinism() -> None:
     resolved_a = loader.resolve(
         defaults=defaults,
         file_cfg={"risk": {"max_position": 7}},
-        env_cfg={"secrets": {"api_key": "abc123"}},
+        # env_cfg={"secrets": {"api_key": "abc123"}},
         cli_overrides={"symbols": ["BTCUSDT", "ETHUSDT"]},
     )
 
     resolved_b = loader.resolve(
         defaults=defaults,
         file_cfg={"secrets": {"api_key": "abc123"}},
-        env_cfg={"risk": {"max_position": 7}},
+        # env_cfg={"risk": {"max_position": 7}},
         cli_overrides={"symbols": ["BTCUSDT", "ETHUSDT"]},
     )
 

@@ -7,11 +7,12 @@ Writes a run manifest JSON and emits structured log lines (JSONL) to the run dir
 Determinism: For --noop mode we only depend on provided --seed and current UTC timestamp.
 """
 
+# TODO Remove ENV overrides
+
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import subprocess
 import sys
 import uuid
@@ -87,33 +88,6 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _collect_env_config(
-    environ: Mapping[str, str], *, prefix: str = ENV_PREFIX
-) -> Mapping[str, Any] | None:
-    """
-    Translate environment variables with ``prefix`` into a nested mapping.
-
-    Uses ``__`` as the segment separator (e.g. ``BT_RISK__MAX_POSITION`` →
-    ``{"risk": {"max_position": value}}``). Returns ``None`` when no overrides
-    are detected so callers can skip the layer entirely.
-    """
-    overrides: Dict[str, Any] = {}
-    for raw_key, raw_value in environ.items():
-        if not raw_key.startswith(prefix):
-            continue
-        stripped = raw_key[len(prefix) :]
-        if not stripped:
-            continue
-        segments = [segment.lower() for segment in stripped.split("__") if segment]
-        if not segments:
-            continue
-        cursor: Dict[str, Any] = overrides
-        for segment in segments[:-1]:
-            cursor = cursor.setdefault(segment, {})
-        cursor[segments[-1]] = raw_value
-    return overrides or None
-
-
 def _parse_cli_overrides(pairs: list[str]) -> Mapping[str, Any]:
     overrides: dict[str, Any] = {}
 
@@ -123,7 +97,6 @@ def _parse_cli_overrides(pairs: list[str]) -> Mapping[str, Any]:
             raise ValueError(f"--set requires KEY=VALUE format (got {item!r})")
 
         insert_path(overrides, key, value)  # use helper to expand dotted keys
-
     return overrides
 
 
@@ -159,11 +132,11 @@ def run_noop(
 
     # TODO: Make canonical form!
     # Assemble manifest dict with metadata, etc.
-    # 1. Default
+    # 1. Default (valid for all strategies)
     # TODO Eventuall store defaults in a file (YAML, TOML)
     config_loader = ConfigLoader(telemetry)
     defaults = Config().model_dump()
-    # 2. file config
+    # 2. file config (valid for specific strategies)
     # TODO TEST (does that work?)
     if file_config:
         raw_text = Path(file_config).read_text()
@@ -184,10 +157,7 @@ def run_noop(
     else:
         file_cfg = {}
 
-    # 3. Environment config via BT_ prefixed variables
-    env_cfg = _collect_env_config(os.environ, prefix=ENV_PREFIX)
-
-    # 4. CLI Overrides
+    # 3. CLI Overrides
     if config_overrides:
         cli_overrides: Mapping[str, Any] = _parse_cli_overrides(config_overrides)
     else:
@@ -196,7 +166,6 @@ def run_noop(
     resolved = config_loader.resolve(
         defaults=defaults,
         file_cfg=file_cfg,
-        env_cfg=env_cfg,
         cli_overrides=cli_overrides,
     )
 

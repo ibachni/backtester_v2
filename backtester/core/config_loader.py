@@ -60,7 +60,6 @@ class ConfigLoader:
         self,
         defaults: Mapping[str, Any],
         file_cfg: Optional[Mapping[str, Any]],
-        env_cfg: Optional[Mapping[str, Any]],
         cli_overrides: Optional[Mapping[str, Any]],
         secret_paths: Optional[Iterable[str | Iterable[str]]] = None,
     ) -> ReturnConfig:
@@ -99,7 +98,7 @@ class ConfigLoader:
                 raise KeyError(f"Missing required config key(s): {joined}") from e
             raise
 
-        for layer in [file_cfg, env_cfg, cli_overrides]:
+        for layer in [file_cfg, cli_overrides]:
             if layer is not None:
                 config = deep_merge(config, layer)
 
