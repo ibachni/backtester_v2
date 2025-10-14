@@ -1,0 +1,253 @@
+{
+    "id": "BT-0001",
+    "title": "Deterministic layered config & secrets resolution",
+    "type": "feature",
+    "context": {
+        "problem_statement": "Current runs lack a deterministic, audited configuration snapshot and secrets redaction. Without a layered merge (defaults < file < env < CLI) and a stable config hash captured in the run manifest, reproducibility and safety guarantees (ADR-001, ADR-019) are weakened and accidental secret leakage risk remains. We need a minimal slice that proves precedence, validation, hashing, and redaction for a tiny subset of fields (one symbol, a risk limit, and an API key secret).",
+        "background": [
+            "ADR-001 Determinism by Default",
+            "ADR-004 Interfaces Before Implementation",
+            "ADR-019 Config & Secrets Management",
+            "Slice Spec: docs/slices/SLICE-0001-config-and-secrets.md"
+        ],
+        "assumptions": [
+            "Single symbol (e.g. BTCUSDT)",
+            "Flat (shallow) config structure for slice",
+            "Environment variables optionally prefixed (e.g. BT_)",
+            "CLI exposes --config and --set key=value overrides"
+        ],
+        "non_goals": [
+            "No external secret manager integration",
+            "No deep/nested schema beyond simple sections (symbols, risk, runtime)",
+            "No multi-environment promotion or reload/watch",
+            "No pydantic model yet if simple dataclass + validation suffices"
+        ]
+    },
+    "scope": {
+        "includes": [
+            "Config precedence resolution (defaults,file,env,CLI)",
+            "Secrets redaction logic in manifest write path",
+            "Config hash computation (stable ordering, SHA256)",
+            "Extension of run manifest content: add config_hash & config_keys count",
+            "Minimal validation (required: symbols, risk.max_position)"
+        ],
+        "excludes": [
+            "Dynamic reload",
+            "Remote secret backends",
+            "Multiple symbols abstractions",
+            "Complex nested merge semantics"
+        ]
+    },
+    "contracts": [
+        {
+            "name": "ConfigProvider",
+            "module": "backtester.ports.config_provider",
+            "signature": "get(key: str) -> Any"
+        },
+        {
+            "name": "SecretsProvider",
+            "module": "backtester.ports.secrets_provider",
+            "signature": "get(secret_name: str) -> str"
+        },
+        {
+            "name": "RunManifestStore",
+            "module": "backtester.ports.run_manifest_store",
+            "signature": "init_run(manifest: dict[str, Any]) -> None"
+        }
+    ],
+    "adr": {
+        "needed": false,
+        "reason": "Existing port method signatures remain unchanged; slice only adds usage patterns and manifest fields without normative contract alteration."
+    },
+    "acceptance_criteria": [
+        "Given identical defaults+file+env+CLI inputs (order of --set flags arbitrary), when computing the config hash with same seed, then the hash is identical (deterministic, stable key ordering).",
+        "Given a config file missing required key 'symbols', when loader validates, then it raises KeyError containing 'symbols'.",
+        "Given a secret value (API key) provided via SecretsProvider referenced in config, when manifest is written, then the secret appears redacted (***REDACTED***) and is never logged in plaintext.",
+        "Given precedence defaults<file<env<CLI, when the same key appears in multiple layers, then final value equals the highest-precedence layer (verified by test for 'risk.max_position').",
+        "Given two runs with same seed & identical effective config, when manifests are compared ignoring timestamp & run id, then they are byte-identical and include 'config_hash' field."
+    ],
+    "test_plan": {
+        "unit": [
+            "tests/unit/config/test_config_layer.py::test_config_precedence_simple_key",
+            "tests/unit/config/test_config_layer.py::test_invalid_required_key_raises",
+            "tests/unit/config/test_config_layer.py::test_secrets_redacted_in_manifest",
+            "tests/unit/config/test_config_layer.py::test_config_hash_determinism"
+        ],
+        "integration": [],
+        "e2e": [],
+        "fixtures": [
+            "(inline temporary config dicts; optional small sample file tests/fixtures/config/minimal.yml if implementer chooses)"
+        ],
+        "failing_tests_gwt": {
+            "tests/unit/config/test_config_layer.py::test_config_precedence_simple_key": {
+                "GIVEN": "Defaults risk.max_position=1; file sets risk.max_position=2; env BT_RISK__MAX_POSITION=3; CLI --set risk.max_position=4",
+                "WHEN": "Config layer resolves final config",
+                "THEN": "Final value for risk.max_position == 4 (CLI wins)"
+            },
+            "tests/unit/config/test_config_layer.py::test_invalid_required_key_raises": {
+                "GIVEN": "Config file missing required 'symbols' key",
+                "WHEN": "Loader validates schema",
+                "THEN": "ValueError raised mentioning 'symbols'"
+            },
+            "tests/unit/config/test_config_layer.py::test_secrets_redacted_in_manifest": {
+                "GIVEN": "Secret API key resolved via SecretsProvider and merged into config",
+                "WHEN": "Run manifest is written including 'config' section",
+                "THEN": "Manifest stores api_key as '***REDACTED***' while internal access still returns real value"
+            },
+            "tests/unit/config/test_config_layer.py::test_config_hash_determinism": {
+                "GIVEN": "Two resolution sequences with identical layers but different ordering of CLI --set overrides",
+                "WHEN": "Hash computed (e.g., SHA256 of canonical JSON serialization)",
+                "THEN": "Hashes match"
+            }
+        }
+    },
+    "observability": {
+        "logs": [
+            "config_resolved",
+            "config_validation_error",
+            "secrets_redacted",
+            "config_hash_computed"
+        ],
+        "metrics": [
+            "config_keys_total",
+            "secrets_lookups_total"
+        ]
+    },
+    "research_brief": {
+        "seeds": [
+            "ConfigProvider",
+            "SecretsProvider",
+            "config_hash",
+            "redact",
+            "env prefix",
+            "--set",
+            "manifest config_hash"
+        ],
+        "excludes": [
+            "**/venv/**",
+            "**/.git/**",
+            "**/__pycache__/**"
+        ],
+        "commands": [
+            "rg -n 'ConfigProvider' backtester/",
+            "rg -n 'SecretsProvider' backtester/",
+            "rg -n 'manifest' backtester/cli backtester/core",
+            "pytest -k config_layer -q",
+            "python - <<'PY'\nimport json,hashlib;print('probe')\nPY"
+        ],
+        "success": "Confirmed no existing config loader; identified insertion point (likely within CLI or new core module); mapped run manifest write path to extend; gathered baseline of zero hits for new logs/metrics tokens."
+    },
+    "links": {
+        "slice_plan": "docs/slices/SLICE-0001-config-and-secrets.md",
+        "contracts": [
+            "backtester/ports/config_provider.py",
+            "backtester/ports/secrets_provider.py",
+            "backtester/ports/run_manifest_store.py"
+        ],
+        "adrs": [
+            "adr/001-determinism-by-default.md",
+            "adr/019-config-and-secrets-management.md"
+        ],
+        "failing_tests": [
+            "tests/unit/config/test_config_layer.py"
+        ]
+    },
+    "due": "2025-10-06T23:59:00Z",
+    "est_loc_delta": 250,
+    "artifacts": [
+        "artifacts/BT-0001_rg_config_provider.txt",
+        "artifacts/BT-0001_rg_secrets_provider.txt",
+        "artifacts/BT-0001_rg_manifest.txt",
+        "artifacts/BT-0001_pytest_config_layer.txt",
+        "artifacts/BT-0001_config_hash_probe.txt",
+        "artifacts/BT-0001_git_sha.txt"
+    ],
+    "research_findings": {
+        "repro": {
+            "commands": [
+                "git rev-parse HEAD",
+                "grep -Rin 'ConfigProvider' backtester/",
+                "grep -Rin 'SecretsProvider' backtester/",
+                "grep -Rin 'manifest' backtester/cli backtester/core",
+                "python3 -m pytest -k config_layer -q (failed: pytest not installed)",
+                "python3 - <<'PY' (hash probe)\nimport hashlib, json\nconfig = {'symbols': ['BTCUSDT'], 'risk': {'max_position': 1}}\ncanonical = json.dumps(config, sort_keys=True, separators=(',', ':')).encode()\nprint(hashlib.sha256(canonical).hexdigest())\nPY"
+            ],
+            "env": {},
+            "dataset": null,
+            "config_hash": "7b65d7b40affc443f80886637e3975d8dd18370efb6f1ddc86202f395b97a902",
+            "git_sha": "80dc9fadcb758fc4b8ed142ea7814e7deac13a35",
+            "observed": "No config loader; manifest lacks config_hash & redaction; tests not runnable (pytest missing).",
+            "expected": "Failing tests execute (red) once pytest installed; implementation adds deterministic hash & redaction events/logs."
+        },
+        "files": [
+            {
+                "path": "backtester/cli/bt.py",
+                "symbol": "run_noop",
+                "lines": "60-101",
+                "why": "Extend manifest with config_hash/config_keys and redacted config section",
+                "last_sha": "80dc9fadcb758fc4b8ed142ea7814e7deac13a35"
+            },
+            {
+                "path": "backtester/cli/bt.py",
+                "symbol": "FilesystemRunManifestStore.init_run",
+                "lines": "28-42",
+                "why": "Deterministic write & secret exclusion prior to disk",
+                "last_sha": "80dc9fadcb758fc4b8ed142ea7814e7deac13a35"
+            },
+            {
+                "path": "backtester/ports/config_provider.py",
+                "symbol": "ConfigProvider.get",
+                "lines": "11-20",
+                "why": "Port consumer for resolved config values",
+                "last_sha": "80dc9fadcb758fc4b8ed142ea7814e7deac13a35"
+            },
+            {
+                "path": "backtester/ports/secrets_provider.py",
+                "symbol": "SecretsProvider.get",
+                "lines": "11-20",
+                "why": "Source of secrets requiring redaction before manifest inclusion",
+                "last_sha": "80dc9fadcb758fc4b8ed142ea7814e7deac13a35"
+            },
+            {
+                "path": "backtester/ports/run_manifest_store.py",
+                "symbol": "RunManifestStore.init_run",
+                "lines": "11-25",
+                "why": "Manifest extension needs additional keys before write",
+                "last_sha": "80dc9fadcb758fc4b8ed142ea7814e7deac13a35"
+            },
+            {
+                "path": "tests/unit/config/test_config_layer.py",
+                "symbol": "test_config_precedence_simple_key",
+                "lines": "1-40",
+                "why": "Encodes precedence acceptance criteria (currently failing)",
+                "last_sha": "80dc9fadcb758fc4b8ed142ea7814e7deac13a35"
+            }
+        ],
+        "dependencies": [
+            "Env vars / CLI args → (future) ConfigLoader → ConfigProvider.get",
+            "SecretsProvider.get → (future) ConfigLoader → redaction → run_noop",
+            "run_noop → RunManifestStore.init_run (writes extended manifest)",
+            "run_noop → Telemetry.log (config_resolved, config_hash_computed)"
+        ],
+        "suspected_causes": [
+            "Missing ConfigLoader module for precedence & hashing",
+            "No redaction wrapper; secrets would appear verbatim if added now",
+            "Manifest write lacks explicit canonical ordering (rely on insertion order only)"
+        ],
+        "artifacts": [
+            "artifacts/BT-0001_rg_config_provider.txt",
+            "artifacts/BT-0001_rg_secrets_provider.txt",
+            "artifacts/BT-0001_rg_manifest.txt",
+            "artifacts/BT-0001_pytest_config_layer.txt",
+            "artifacts/BT-0001_config_hash_probe.txt",
+            "artifacts/BT-0001_git_sha.txt"
+        ],
+        "next_probes": [
+            "Install dev dependencies then re-run pytest to capture real failing traceback",
+            "Decide canonical serialization (sorted compact JSON) and document",
+            "Define env var to key mapping spec (e.g. BT_RISK__MAX_POSITION → risk.max_position)",
+            "List secret keys requiring redaction policy (e.g. api_key, api_secret)"
+        ]
+    },
+    "state": "ready-for-impl"
+}

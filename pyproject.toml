@@ -7,9 +7,12 @@ requires-python = ">=3.11"
 readme = "README.md"
 license = { text = "MIT" }
 classifiers = [
-	"Programming Language :: Python :: 3",
-	"Programming Language :: Python :: 3.11",
-	"Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Operating System :: OS Independent",
+]
+dependencies = [
+    "pydantic>=2.4,<3",
 ]
 
 [project.optional-dependencies]
@@ -83,4 +86,6 @@ check_untyped_defs = true
 show_error_codes = true
 exclude = [
   "^tests/",
+  "^sample_data/",
+  "^learning/",
 ]

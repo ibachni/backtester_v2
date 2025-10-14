@@ -1,0 +1,17 @@
+flowchart LR
+  subgraph repo[Repository]
+    A[backtester/cli/bt.py]:::changed
+    B[backtester/ports/config_provider.py]
+    C[backtester/ports/secrets_provider.py]
+    D[backtester/ports/run_manifest_store.py]
+    E[tests/unit/config/test_config_layer.py]:::changed
+  end
+  N1[backtester/core/config_loader.py]:::new --> A
+  E --> N1
+  A --> D
+  N1 --> B
+  N1 --> C
+
+  classDef new fill:#ffec99,stroke:#d4aa00,stroke-width:2px;
+  classDef changed fill:#ffd8a8,stroke:#e67700,stroke-width:2px;
+  classDef default fill:#fff,stroke:#999,stroke-dasharray:3 3;

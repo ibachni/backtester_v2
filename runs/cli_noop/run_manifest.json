@@ -4,5 +4,22 @@
   "version": "0.0.1",
   "seed": 123,
   "schema_version": 1,
-  "mode": "noop"
+  "mode": "noop",
+  "redacted_config": {
+    "risk": {
+      "allowed_symbols": [
+        "BTCUSDT"
+      ],
+      "max_position": 4
+    },
+    "secrets": {
+      "api_key": "***REDACTED***",
+      "api_secret": "***REDACTED***"
+    },
+    "symbols": [
+      "BTCUSDT"
+    ]
+  },
+  "config_hash": "81d0c1dea50fccbd6bcd8b5e9a6cd9398108ce06cd640073e4d79eb04cd4265d",
+  "config_keys_total": 5
 }

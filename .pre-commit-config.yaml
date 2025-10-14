@@ -1,15 +1,43 @@
 default_language_version:
   python: python3
-
+# pre-commit run --hook-stage push --all-files
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
     hooks:
       - id: ruff
+        name: ruff (commit)
+        stages: [pre-commit]
         args:
           - --fix
           - --exit-non-zero-on-fix
       - id: ruff-format
+        name: ruff format (commit)
+        stages: [pre-commit]
+      - id: ruff
+        name: ruff (push)
+        stages: [pre-push]
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff format --check (push)
+        stages: [pre-push]
+        args:
+          - --check
+        pass_filenames: false
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.11.2
+    hooks:
+      - id: mypy
+        name: mypy (push)
+        stages: [pre-push]
+        pass_filenames: false
+        additional_dependencies:
+          - types-requests==2.32.0.20240914
+          - types-urllib3==1.26.25.14
+        args:
+          - --config-file=pyproject.toml
+          - --pretty
+          - .
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
     hooks:

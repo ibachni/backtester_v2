@@ -24,7 +24,7 @@ Reproducibility and safety require an immutable config snapshot for every run; l
 - Typed `Config` dataclass or pydantic model (sections: data, symbols, timeframes, costs, risk limits, runtime SLOs, live endpoints).
 - Precedence: defaults < file (YAML/TOML) < env vars < CLI flags.
 - `SecretsProvider` (env + optional local secure backend; redaction in logs).
-- Manifest capture of effective config hash, Git SHA, start/end times, environment metadata.
+- Manifest capture of effective config hash, Git SHA, environment metadata.
 - CLI flags: `--config path`, `--set key=value`, `--env-prefix PREFIX_`.
 
 ## Out of Scope

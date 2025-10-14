@@ -12,3 +12,9 @@ from typing import Protocol
 
 class SecretsProvider(Protocol):
     def get(self, secret_name: str) -> str: ...
+
+    """
+    Retrieve a secret value using its logical name.
+    When called, it returns the corresponding secret as a string.
+    Keeps sensitive information out of code.
+    """

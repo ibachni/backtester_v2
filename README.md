@@ -18,6 +18,28 @@ bt backtest --noop --out runs/example --seed 42
 cat runs/example/run_manifest.json
 ```
 
+CLI Usage
+---------
+
+After installation (`pip install -e .`), the `bt` console script is available. You can also invoke the module directly with `python -m backtester.cli.bt`.
+
+```bash
+# Display available commands
+bt --help
+
+# Run the noop pipeline (no market data), writing artifacts under runs/my_run
+bt backtest --noop --out runs/my_run --seed 123
+
+# Inspect telemetry emitted during the run
+cat runs/my_run/events.log.jsonl
+
+# Apply environment overrides (BT_ prefix, double underscores for nesting)
+BT_RISK__MAX_POSITION=10 BT_SECRETS__API_KEY=topsecret bt backtest --noop --out runs/env_run
+
+# Other modes are stubs today, but share the same flags
+bt shadow --noop --out runs/shadow_probe --seed 99
+```
+
 Manifest Fields:
 
 ```json
@@ -36,7 +58,9 @@ Next Slices:
 See `docs/slices/` for planned incremental functionality (strategy loop, risk rails, observability, adapters).
 
 Contributing / CI parity
------------------------
-- Lint: `ruff check . && ruff format --check .`
-- Types: `mypy .`
+------------------------
+- Install hooks once: `pre-commit install && pre-commit install --hook-type pre-push`
+- Commit hook: runs `ruff` auto-fixes on staged files
+- Push hook + CI: runs `ruff check .`, `ruff format --check .`, `mypy .`
+- Manual spot-check: `pre-commit run --hook-stage pre-push --all-files`
 - Tests: `pytest -q`
