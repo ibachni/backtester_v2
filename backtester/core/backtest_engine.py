@@ -1,8 +1,6 @@
 from dataclasses import dataclass
 from typing import Mapping
 
-from backtester.core.clock import SimClock
-
 
 @dataclass(frozen=True)
 class BacktestReport:
@@ -83,57 +81,60 @@ class BacktestEngine:
 
     """
 
-    def __init__(
-        self,
-        clock: SimClock,
-        feed,
-        strategies,
-        account,
-        exec_sim,
-        risk_engine,
-        specs,
-        run_id,
-        rng_seed,
-        audit,
-    ) -> None:
-        self._clock = clock
-        self._feed = feed
-        self._strategies = strategies
-        self._account = account
-        self._exec = exec_sim
-        self._risk = risk_engine
-        self._specs = specs
-        self._run_id = run_id
-        self._rng_seed = rng_seed
-        self._audit = audit
+    # def __init__(
+    #     self: ,
+    #     clock: SimClock,
+    #     feed,
+    #     strategies,
+    #     account,
+    #     exec_sim,
+    #     risk_engine,
+    #     specs,
+    #     run_id,
+    #     rng_seed,
+    #     audit,
+    # ) -> None:
+    #     self._clock = clock
+    #     self._feed = feed
+    #     self._strategies = strategies
+    #     self._account = account
+    #     self._exec = exec_sim
+    #     self._risk = risk_engine
+    #     self._specs = specs
+    #     self._run_id = run_id
+    #     self._rng_seed = rng_seed
+    #     self._audit = audit
 
-        # Observability
-        # self._acks: list[OrderAck] = []
-        # self._fills: list[object] = []
-        # self._snaps: list[PortfolioSnapshot] = []
-        self._bars: int = 0
-        self._intents_in: int = 0
-        self._intents_out: int = 0
+    #     # Observability
+    #     # self._acks: list[OrderAck] = []
+    #     # self._fills: list[object] = []
+    #     # self._snaps: list[PortfolioSnapshot] = []
+    #     self._bars: int = 0
+    #     self._intents_in: int = 0
+    #     self._intents_out: int = 0
 
-        # Follow-ups from on_fill to be executed on the next bar
-        # self._next_bar_intents: list[OrderIntent] = []
+    #     # Follow-ups from on_fill to be executed on the next bar
+    #     # self._next_bar_intents: list[OrderIntent] = []
 
-        # Strategy routing and warmup
-        # self._strat_symbols: dict[Strategy, set[str]] = {}
-        # self._strat_tfs: dict[Strategy, set[str]] = {}
-        self._strat_warmup: dict[tuple[int, str, str], int] = {}
+    #     # Strategy routing and warmup
+    #     # self._strat_symbols: dict[Strategy, set[str]] = {}
+    #     # self._strat_tfs: dict[Strategy, set[str]] = {}
+    #     self._strat_warmup: dict[tuple[int, str, str], int] = {}
 
-        # Per-frame reference prices for risk (symbol -> ref price)
-        self._ref_prices: dict[str, float] = {}
+    #     # Per-frame reference prices for risk (symbol -> ref price)
+    #     self._ref_prices: dict[str, float] = {}
 
-    def run(self) -> BacktestReport:
-        for s in self._strategies:
-            # 1. collect collect all smbols
-            pass
+    # def run(self) -> BacktestReport:
+    #     for s in self._strategies:
+    #         # 1.1. get relevant symbols
+    #         # 1.2. get relevant timeframes
 
-        return BacktestReport(
-            snapshot=(),
-            fills=(),
-            acks=(),
-            stats={},
-        )
+    #         # 1. collect collect all smbols
+    #         pass
+
+    #     return BacktestReport(
+    #         snapshot=(),
+    #         fills=(),
+    #         acks=(),
+    #         stats={},
+    #     )

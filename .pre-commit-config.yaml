@@ -1,6 +1,6 @@
 default_language_version:
   python: python3
-
+# pre-commit run --hook-stage push --all-files
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9
@@ -31,8 +31,12 @@ repos:
         name: mypy (push)
         stages: [pre-push]
         pass_filenames: false
+        additional_dependencies:
+          - types-requests==2.32.0.20240914
+          - types-urllib3==1.26.25.14
         args:
           - --config-file=pyproject.toml
+          - --pretty
           - .
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v4.6.0
