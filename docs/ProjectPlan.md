@@ -2,6 +2,10 @@
 
 > Living document summarizing core goals, architectural decisions (ADRs), and delivery slices. Updated as slices progress.
 
+## 0. Overall TODOS
+
+TODO: Decide how to log: logging vs. my own module.
+
 ## 1. Vision & Scope
 Provide a deterministic, event-driven quantitative backtesting and lightweight live/paper trading platform optimized for:
 - Reproducible research (bitwise or hash-equivalent outputs given same code + config + data + seed).

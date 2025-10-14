@@ -42,7 +42,9 @@ class SystemClock:
 
 
 class FilesystemRunManifestStore:
-    """Persist run manifests to the filesystem."""
+    """
+    Persist run manifests to the filesystem.
+    """
 
     def __init__(self, out_dir: Path):
         """Create a manifest store rooted at `out_dir`."""

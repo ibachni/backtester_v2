@@ -56,10 +56,10 @@ def parse_timeframe(tf: str) -> Millis:
 
     for u in unit:
         if tf.endswith(u):
-            quantity = tf[: -len(u)].strip()
-            if not quantity or not quantity.isdigit():
+            prefix = tf[: -len(u)].strip()
+            if not prefix or not prefix.isdigit():
                 raise ValueError("clock.parse_timeframe(): quantity None or not digit")
-            quantity = int(quantity)
+            quantity = int(prefix)
             if quantity <= 0:
                 raise ValueError("clock.parse_timeframe(): quantity must be positive")
             return quantity * _TIME_UNITS_MS[u]
@@ -101,7 +101,7 @@ class Clock(ABC):
         """High-resolution timestamp in nanoseconds (derived)."""
         return int(self.now()) * 1_000_000
 
-    async def sleep_until(self) -> None:
+    async def sleep_until(self, ts_ms: Millis) -> None:
         """
         Block (await) until the clock reaches ts_ms.
 
@@ -116,6 +116,7 @@ class Clock(ABC):
 
     # use property method to make it immutable.
     # Cannot be accessed like traditional attribute, but only be called.
+
     @property
     @abstractmethod
     def is_realtime(self) -> bool:
@@ -177,6 +178,7 @@ class RealtimeClock(Clock):
         self._t0_mono = time.monotonic()
         self.sleep_chunck_ms = max(5, int(self.sleep_chunck_ms))
 
+    @property
     def is_realtime(self) -> bool:
         # This clock follows real time
         return True

@@ -29,15 +29,15 @@ error message)
 """
 
 # TODO Collect all such design parameters in a config!
-ALLOWED_KEYS = set(Config.model_fields.keys())
-FIELD_TYPE_ADAPTERS = {
+ALLOWED_KEYS: set[str] = set(Config.model_fields.keys())
+FIELD_TYPE_ADAPTERS: dict[str, Any] = {
     name: TypeAdapter(field.annotation)
     for name, field in Config.model_fields.items()
     if field.annotation is not Any
 }
-REDACTED = "***REDACTED***"
-HASH_INCLUDES_SECRETS = True  # comment rationale: detects secret drift
-CONFIG_KEYS_COUNT_MODE = "leaf"  # higher computation, more accurate
+REDACTED: str = "***REDACTED***"
+HASH_INCLUDES_SECRETS: bool = True  # comment rationale: detects secret drift
+CONFIG_KEYS_COUNT_MODE: str = "leaf"  # higher computation, more accurate
 NUMERIC_STRING_PATHS: set[tuple[str, ...]] = {
     ("risk", "max_position"),
     ("runtime", "seed"),

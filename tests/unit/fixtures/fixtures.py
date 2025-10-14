@@ -5,6 +5,18 @@ from backtester.core.other import insert_path
 
 # --- test_bt.py -------------------------------------------------
 
+parser_argument: list[str] = [
+    "backtest",
+    "--out",
+    "some_dir",
+    "--seed",
+    "123",
+    "--config",
+    "new_path",
+    "--set",
+    "KEY==VALUE",
+]
+
 
 def _parse_cli_overrides(pairs: list[str]) -> Mapping[str, Any]:
     overrides: dict[str, Any] = {}
@@ -19,7 +31,6 @@ def _parse_cli_overrides(pairs: list[str]) -> Mapping[str, Any]:
 
 
 # --- test_config_layer.py ---------------------------------------
-
 
 # test_deep_merge()
 # test_validate()

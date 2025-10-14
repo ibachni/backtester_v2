@@ -83,4 +83,6 @@ check_untyped_defs = true
 show_error_codes = true
 exclude = [
   "^tests/",
+  "^sample_data/",
+  "^learning/",
 ]
