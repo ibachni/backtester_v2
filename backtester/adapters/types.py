@@ -45,8 +45,8 @@ class Candle:
     low: float
     close: float
     volume: float
-    trades: int  # optional, can be 0
-    is_final: bool = True
+    trades: Optional[int]  # optional, can be 0
+    is_final: Optional[bool] = True
 
 
 class OrderIntent:
