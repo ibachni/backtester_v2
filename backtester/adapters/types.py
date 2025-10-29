@@ -4,7 +4,7 @@ define canonical types
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Literal, Mapping, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -13,6 +13,26 @@ UnixMillis = int
 UnixMicros = int
 Symbol = str
 Timeframe = str  # e.g., "1s","5s","1m","3m","5m","1h","1d"
+
+# -------- Enums --------
+
+
+class Side(str, Enum):
+    BUY = "buy"
+    SELL = "sell"
+
+
+class OrderType(str, Enum):
+    MARKET = "market"
+    LIMIT = "limit"
+    STOP = "stop"  # stop-market
+    STOP_LIMIT = "stop_limit"
+
+
+class TimeInForce(str, Enum):
+    GTC = "gtc"  # good till canceled
+    IOC = "ioc"  # immediate or cancel
+    FOK = "fok"  # fill or kill
 
 
 class EVENTNAMES(str, Enum):
@@ -24,6 +44,16 @@ class EVENTNAMES(str, Enum):
     CONFIG = "config"
 
 
+class Liquidity(str, Enum):
+    MAKER = "maker"
+    TAKER = "taker"
+    UNKNOWN = "unknown"
+
+
+class Topics:
+    BAR = "bar"
+
+
 class Event(BaseModel):
     model_config = ConfigDict(extra="forbid")
     event: EVENTNAMES
@@ -32,6 +62,18 @@ class Event(BaseModel):
     git_sha: str
     seed: int
     component: Any
+
+
+EventType = Literal["eof", "halt", "error"]
+
+
+@dataclass(frozen=True, slots=True)
+class ControlEvent:
+    type: EventType  # "eof" indicates end-of-stream
+    source: str  # e.g., "mkt.candles"
+    ts_utc: int  # emission time (ms, UTC)
+    run_id: str | None = None
+    details: Mapping[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -49,12 +91,39 @@ class Candle:
     is_final: Optional[bool] = True
 
 
+Tags = dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
 class OrderIntent:
-    pass
+    symbol: Symbol
+    side: Side
+    type: OrderType = OrderType.MARKET
+    qty: float = 0.0
+    price: Optional[float] = None
+    stop_price: Optional[float] = None
+    reduce_only: bool = False
+    post_only: bool = False
+    tif: TimeInForce = TimeInForce.GTC
+    client_id: Optional[str] = None
+    tags: Tags = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        if self.qty <= 0:
+            raise ValueError("OrderIntent.qty must be > 0.")
+        if self.type in (OrderType.LIMIT, OrderType.STOP_LIMIT) and (self.price is None):
+            raise ValueError("Limit/StopLimit orders require price.")
+        if self.type in (OrderType.STOP, OrderType.STOP_LIMIT) and (self.stop_price is None):
+            raise ValueError("Stop/StopLimit orders require stop_price.")
 
 
 class OrderAck:
-    pass
+    client_id: str
+    ts: UnixMillis
+    accepted: bool
+    # causation_id: str  # Linking to the OrderIntent
+    reason: Optional[str] = None
+    exchange_order_id: Optional[str] = None
 
 
 class Fill:
