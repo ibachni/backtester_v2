@@ -109,14 +109,21 @@ class Strategy(ABC):
 
     # --- Lifecycle hooks (called by the engine)
 
-    def on_start(self, ctx: Context) -> list[OrderIntent]:
+    def on_start(
+        self,
+        # ctx: Context
+    ) -> list[OrderIntent]:
         """
         Called once at the start of the strategy. Sometime immediate actions (intent) are required.
         """
         return []
 
     @abstractmethod  # required for each instance: Otherwise TypeError
-    def on_candle(self, ctx: Context, candle: Candle) -> list[OrderIntent]:
+    def on_candle(
+        self,
+        # ctx: Context,
+        candle: Candle,
+    ) -> list[OrderIntent]:
         """
         Primary decision hook. Required.
         When: For every final bar published on topics subscribed to.
@@ -126,7 +133,11 @@ class Strategy(ABC):
             - Never round price/qty here; the engine enforces consraints consistently
         """
 
-    def on_fill(self, ctx: Context, fill: Fill) -> Optional[list[OrderIntent]]:
+    def on_fill(
+        self,
+        # ctx: Context,
+        fill: Fill,
+    ) -> Optional[list[OrderIntent]]:
         """
         When: After an order intent results in an execution (sim or live)
         What to do:
@@ -136,7 +147,11 @@ class Strategy(ABC):
 
         """
 
-    def on_timer(self, ctx: Context, ts: float) -> list[OrderIntent]:
+    def on_timer(
+        self,
+        # ctx: Context,
+        ts: float,
+    ) -> list[OrderIntent]:
         """
         Engine triggers at scheduled boundaries, e.g., every 1 hour or at midnight.
         What to do:
@@ -147,7 +162,10 @@ class Strategy(ABC):
 
     # def on_lifecycle(self, ctx, event): Expiries, listings, corporate actions
 
-    def on_end(self, ctx: Context) -> None:
+    def on_end(
+        self,
+        # ctx: Context
+    ) -> None:
         """
         Finalize and dump diagnostics.
             - End-of-run hosekeeping: emit final metrics to ctx.metrics
@@ -196,11 +214,11 @@ class Strategy(ABC):
     @staticmethod
     def _stable_params_hash(params: Mapping[str, Any]) -> str:
         try:
-            blob = json.dumps(params, sort_keys=True, seperators=(",", ":"), default=str).encode(
+            blob = json.dumps(params, sort_keys=True, separators=(",", ":"), default=str).encode(
                 "utf-8"
             )
         except Exception:
             items = sorted((k, str(v)) for k, v in dict(params).items())
-            blob = json.dumps(items, seperators=(",", ":"), default=str).encode("utf-8")
+            blob = json.dumps(items, separators=(",", ":"), default=str).encode("utf-8")
         h = hashlib.sha1(blob).hexdigest()
         return h[:10]

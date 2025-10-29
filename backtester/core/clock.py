@@ -221,8 +221,9 @@ class SimClock(Clock):
     the stragegy callback.
     """
 
-    start_ms: Millis
-    _current_ms: Optional[Millis] = None
+    def __init__(self, start_ms: Millis):
+        self.start_ms: Millis = start_ms
+        self._current_ms: Optional[Millis] = start_ms
 
     def __post_init__(self) -> None:
         if self.start_ms < 0:

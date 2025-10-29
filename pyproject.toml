@@ -13,6 +13,7 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.4,<3",
+    "polars>=0.20"
 ]
 
 [project.optional-dependencies]
