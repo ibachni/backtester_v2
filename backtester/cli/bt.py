@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional
 
 from backtester.adapters.jsonl import JsonlTelemetry
-from backtester.core.config_loader import ConfigLoader
+from backtester.config.config_resolver import ConfigLoader
 from backtester.core.models import Config
 from backtester.core.other import insert_path
 from backtester.ports.clock import Clock

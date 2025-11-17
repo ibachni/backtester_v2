@@ -7,9 +7,15 @@ from pydantic import ValidationError
 from pydantic.type_adapter import TypeAdapter
 from pydantic_core import ValidationError as CoreValidationError
 
+from ..core.models import Config, ReturnConfig
+from ..core.utility import deep_merge, validation_error_parser
 from ..ports.telemetry import Telemetry
-from .models import Config, ReturnConfig
-from .utility import deep_merge, validation_error_parser
+
+"""
+Purpose:
+    - Merge configuration layers (defaults, file, cli)
+"""
+
 
 """
 # TODO: Introduce a dedicated eception family:

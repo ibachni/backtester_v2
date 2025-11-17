@@ -1,6 +1,9 @@
 default_language_version:
   python: python3
 # pre-commit run --hook-stage push --all-files
+
+exclude: ^archive/
+
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.6.9

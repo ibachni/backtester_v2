@@ -3,7 +3,6 @@ import time
 
 import pytest
 
-from backtester.adapters.types import Candle
 from backtester.core.bus import (
     Bus,
     BusError,
@@ -12,6 +11,7 @@ from backtester.core.bus import (
     TopicConfig,
     TopicPriority,
 )
+from backtester.types.types import Candle
 
 # --- Topic Management ---
 

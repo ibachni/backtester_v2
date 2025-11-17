@@ -1,4 +1,6 @@
 # Ignore all files in the data/ folder
 learning/
 runs/
-data/
+fixture_data/
+download_test/
+archive/

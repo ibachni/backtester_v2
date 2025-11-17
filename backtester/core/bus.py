@@ -4,8 +4,9 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
-from typing import Any, Callable, Optional, Type
+from typing import Any, Callable, Iterable, Optional, Tuple, Type
 
+from backtester.core.audit import AuditWriter
 from backtester.core.clock import Millis
 
 # --- Data structures and config ---
@@ -439,7 +440,9 @@ class Bus:
     # 1. Add Deterministic per-topic sequencing (owned by the bus)
     # 1.1. Implement per-topic high watermark inetefer per topic
 
-    def __init__(self, config: Optional[BusConfig] = None) -> None:
+    def __init__(
+        self, config: Optional[BusConfig] = None, *, audit: Optional[AuditWriter] = None
+    ) -> None:
         self._cfg = config or BusConfig()
         self._state: _BusState = _BusState.RUNNING
 
@@ -458,6 +461,8 @@ class Bus:
         self._on_error: list[Callable[[str, BaseException], None]] = []
         # (topic, sub_name, env, reason)
         self._on_drop: list[Callable[[str, str, Envelope | None, str], None]] = []
+        self._audit: Optional[AuditWriter] = audit
+        self._no_sub_once: set[str] = set()
 
     # --- helpers ---
 
@@ -470,6 +475,20 @@ class Bus:
                 cb(topic, sub_name, env, reason)
             except Exception as e:
                 self._emit_error("on_drop", e)
+        payload_obj: Any = getattr(env, "payload", None) if env is not None else None
+        order_id = getattr(payload_obj, "id", None) or getattr(payload_obj, "order_id", None)
+        self._emit_audit(
+            "BUS_DROP",
+            level="WARN",
+            payload={
+                "topic": topic,
+                "subscriber": sub_name,
+                "reason": reason,
+                "seq": getattr(env, "seq", None) if env is not None else None,
+            },
+            symbol=getattr(payload_obj, "symbol", None),
+            order_id=order_id,
+        )
 
     def _emit_error(self, where: str, exc: BaseException) -> None:
         for cb in list(self._on_error):
@@ -477,6 +496,41 @@ class Bus:
                 cb(where, exc)
             except Exception:
                 pass
+        self._emit_audit(
+            "BUS_ERROR",
+            level="ERROR",
+            payload={"where": where, "error": repr(exc)},
+        )
+
+    def _emit_audit(
+        self,
+        event: str,
+        *,
+        component: str = "bus",
+        level: str = "INFO",
+        simple: bool = False,
+        sim_time: Optional[int] = None,
+        payload: Optional[dict[str, Any]] = None,
+        symbol: Optional[str] = None,
+        order_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
+    ) -> None:
+        if self._audit is None:
+            return
+        self._audit.emit(
+            component=component,
+            event=event,
+            level=level,
+            simple=simple,
+            sim_time=sim_time,
+            payload=payload or {},
+            symbol=symbol,
+            order_id=order_id,
+            parent_id=parent_id,
+        )
+
+    def set_audit(self, audit: Optional[AuditWriter]) -> None:
+        self._audit = audit
 
     # --- Public hook registration ---
 
@@ -527,6 +581,17 @@ class Bus:
                     validate_schema=eff_validate,
                 )
                 self._topics[name] = _TopicState(name=name, config=cfg)
+                self._emit_audit(
+                    "BUS_TOPIC_REGISTERED",
+                    simple=True,
+                    payload={
+                        "topic": name,
+                        "priority": int(eff_priority),
+                        "validate_schema": bool(eff_validate),
+                        "schema": getattr(schema, "__name__", None) if schema else None,
+                        "coalesce": coalesce_key.__name__ if coalesce_key else None,
+                    },
+                )
                 return
 
             # 2. Case: Already exists; depending on if_exists
@@ -541,10 +606,23 @@ class Bus:
                         raise TypeError(
                             f"Topic '{name}' schema mismatch: {schema} vs existing {cfg.schema}"
                         )
+                    self._emit_audit(
+                        "BUS_TOPIC_VALIDATED",
+                        simple=True,
+                        payload={
+                            "topic": name,
+                            "schema": getattr(cfg.schema, "__name__", None) if cfg.schema else None,
+                        },
+                    )
 
                 # 2.3. merge
                 elif if_exists == IfExistsOptions.MERGE:
                     cfg = existing.config
+                    before = {
+                        "priority": int(cfg.priority),
+                        "validate_schema": bool(cfg.validate_schema),
+                        "schema": getattr(cfg.schema, "__name__", None) if cfg.schema else None,
+                    }
                     if schema is not None:
                         cfg.schema = schema
                     if priority is not None:
@@ -553,6 +631,21 @@ class Bus:
                         cfg.coalesce_key = coalesce_key
                     if validate_schema is not None:
                         cfg.validate_schema = validate_schema
+                    after = {
+                        "priority": int(cfg.priority),
+                        "validate_schema": bool(cfg.validate_schema),
+                        "schema": getattr(cfg.schema, "__name__", None) if cfg.schema else None,
+                    }
+                    self._emit_audit(
+                        "BUS_TOPIC_MERGED",
+                        simple=True,
+                        payload={
+                            "topic": name,
+                            "before": before,
+                            "after": after,
+                            "coalesce": coalesce_key.__name__ if coalesce_key else None,
+                        },
+                    )
                     return
 
     # --- Lifecycle API ---
@@ -620,6 +713,19 @@ class Bus:
             if self._state == _BusState.CLOSED:
                 return
             self._state = _BusState.CLOSING
+            sub_count = len(self._subscriptions)
+            topic_count = len(self._topics)
+        self._emit_audit(
+            "BUS_CLOSE_START",
+            simple=True,
+            payload={
+                "reason": reason or "unspecified",
+                "drain": bool(drain),
+                "timeout": timeout,
+                "subscriptions": sub_count,
+                "topics": topic_count,
+            },
+        )
 
         # Step 2: optional drain up to snapshot taken *inside* flush()
         if drain:
@@ -638,6 +744,10 @@ class Bus:
             self._topics.clear()
             self._state = _BusState.CLOSED
             self._progress.set()
+        self._emit_audit(
+            "BUS_CLOSE_DONE",
+            payload={"reason": reason or "unspecified"},
+        )
 
     # --- subscriptions ---
 
@@ -660,6 +770,16 @@ class Bus:
                 ts.subscribers.add(sub)
             self._subscriptions.add(sub)
 
+        self._emit_audit(
+            "BUS_SUBSCRIBER_ATTACHED",
+            payload={
+                "subscriber": name,
+                "topics": sorted(sub.topics),
+                "buffer_size": sub.queue.maxsize,
+                "policy": str(sub._policy),
+            },
+        )
+
         return sub
 
     async def unsubscribe(self, subscription: Subscription, reason: str = "unsubscribe") -> None:
@@ -674,6 +794,15 @@ class Bus:
                 self._subscriptions.remove(subscription)
             for ts in self._topics.values():
                 ts.subscribers.discard(subscription)
+        self._emit_audit(
+            "BUS_SUBSCRIBER_DETACHED",
+            simple=True,
+            payload={
+                "subscriber": subscription.name,
+                "reason": reason,
+                "topics": sorted(subscription.topics),
+            },
+        )
 
     # --- publish ---
 
@@ -721,6 +850,15 @@ class Bus:
             tstate._last_publish_utc = now_utc
             subscribers = list(tstate.subscribers)
 
+        if not subscribers and topic not in self._no_sub_once:
+            self._no_sub_once.add(topic)
+            self._emit_audit(
+                "BUS_PUBLISH_NO_SUBSCRIBERS",
+                level="WARN",
+                simple=True,
+                payload={"topic": topic},
+            )
+
         # The sequence here is topic-based (not mailbox based)
         env = Envelope(topic=topic, seq=seq, ts=Millis(ts_utc), payload=payload)
 
@@ -732,9 +870,113 @@ class Bus:
         if any_enqueued:
             self._progress.set()
             await asyncio.sleep(0)
-
-        print(f"Env {env} published")
+        else:
+            pass
+            # self._emit_audit(
+            #     "BUS_PUBLISH_DROPPED",
+            #     level="WARN",
+            #     payload={
+            #         "topic": topic,
+            #         "seq": seq,
+            #         "subscribers": [sub.name for sub in subscribers],
+            #     },
+            #     symbol=getattr(payload, "symbol", None),
+            #     order_id=getattr(payload, "id", None) or getattr(payload, "order_id", None),
+            # )
         return seq
+
+    async def publish_batch(
+        self,
+        topic: str,
+        payloads: Iterable[Any],
+        *,
+        ts_utc: Optional[float] = None,
+        urgent: bool = False,
+        timeout_per_item: Optional[float] = None,
+    ) -> Tuple[int, int]:
+        """
+        Publish many events onto a single topic efficiently.
+        """
+
+        if self._state != _BusState.RUNNING:
+            raise RuntimeError("Cannot publish: bus is closing/closed")
+
+        payloads_list = list(payloads)
+        n = len(payloads_list)
+        if n == 0:
+            return (0, 0)
+
+        async with self._lock:
+            tstate = self._topics.get(topic)
+            if tstate is None:
+                raise BusError(f"publish_batch: Topic {topic} unknown")
+
+            if tstate.config.validate_schema and tstate.config.schema is not None:
+                for p in payloads:
+                    if not isinstance(p, tstate.config.schema):
+                        msg = (
+                            f"Schema {tstate.config.schema} does not align with payload type "
+                            f"{type(p)}"
+                        )
+                        raise BusError(msg)
+
+            # Reserve a contiguous seq range and snapshot subscribers
+            first_seq = tstate.high_seq + 1
+            last_seq = tstate.high_seq + n
+            tstate.high_seq = last_seq
+            subscribers = list(tstate.subscribers)
+
+            # Stats update (approximate but cheap)
+            now_mono = time.monotonic()
+            tstate._pub_count += n
+            if tstate._last_publish_mono is not None:
+                dt = now_mono - tstate._last_publish_mono
+                if dt > 0:
+                    inst_rate = n / dt
+                    tstate._ema_rate = 0.2 * inst_rate + 0.8 * tstate._ema_rate
+            tstate._last_publish_mono = now_mono
+            # TODO time.time() vs clock
+            tstate._last_publish_utc = time.time() if ts_utc is None else ts_utc
+
+        if not subscribers and topic not in self._no_sub_once:
+            self._no_sub_once.add(topic)
+            self._emit_audit(
+                "BUS_PUBLISH_NO_SUBSCRIBERS",
+                level="WARN",
+                simple=True,
+                payload={"topic": topic, "batch": True},
+            )
+
+        # Build envs
+        base_ts = time.time() if ts_utc is None else ts_utc
+        envs = [
+            Envelope(topic=topic, seq=(first_seq + i), ts=Millis(base_ts), payload=p)
+            for i, p in enumerate(payloads_list)
+        ]
+        any_enqueued = False
+        for sub in subscribers:
+            for env in envs:
+                ok = await sub.enqueue(env, urgent=urgent, timeout=timeout_per_item)
+                any_enqueued = any_enqueued or ok
+
+        if any_enqueued:
+            self._progress.set()
+            await asyncio.sleep(0)
+        else:
+            self._emit_audit(
+                "BUS_PUBLISH_BATCH_DROPPED",
+                level="WARN",
+                simple=True,
+                payload={
+                    "topic": topic,
+                    "seq_start": first_seq,
+                    "seq_end": last_seq,
+                    "count": n,
+                    "subscribers": [sub.name for sub in subscribers],
+                },
+            )
+
+        return (first_seq, last_seq)
 
     # --- diagnostics & telemetry ---
 

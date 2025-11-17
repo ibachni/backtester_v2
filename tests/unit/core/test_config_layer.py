@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Tuple
 
-from backtester.core.config_loader import ConfigLoader
+from backtester.config.config_resolver import ConfigLoader
 from backtester.core.models import Config
 
 

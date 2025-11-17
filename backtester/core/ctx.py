@@ -7,13 +7,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Any, Callable, Mapping, Optional, Sequence
 
-from backtester.adapters.types import (
-    PortfolioSnapshot,
-    Symbol,
-    SymbolSpec,
-    UnixMillis,
-)
 from backtester.core.clock import Clock
+from backtester.types.types import PortfolioSnapshot, Symbol, SymbolSpec, UnixMillis
 
 
 class ReadOnlyPortfolio:
