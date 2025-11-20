@@ -3,6 +3,7 @@ import time
 
 import pytest
 
+from backtester.config.configs import BusConfig
 from backtester.core.bus import (
     Bus,
     BusError,
@@ -18,7 +19,7 @@ from backtester.types.types import Candle
 
 @pytest.mark.asyncio
 async def test_register_topic_and_stats_defaults():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
     await bus.register_topic("btc.spot")
 
     # Topic config
@@ -36,8 +37,8 @@ async def test_register_topic_and_stats_defaults():
     assert ts.high_seq == 0
     assert ts._pub_count == 0
     assert ts._last_publish_utc is None
-    assert ts._last_publish_mono is None
-    assert ts._ema_rate == 0
+    assert isinstance(ts._last_stats_mono, float)
+    assert ts._last_stats_count == 0
 
     # Stats
     stats = await bus.topic_stats("btc.spot")
@@ -54,14 +55,14 @@ async def test_register_topic_and_stats_defaults():
 
 @pytest.mark.asyncio
 async def test_topic_stats_unknown_raises():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
     with pytest.raises(KeyError):
         await bus.topic_stats(topic="unknown.topic")
 
 
 @pytest.mark.asyncio
 async def test_subscribe_unknown_topic_raises_bus_error():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
     cfg = SubscriptionConfig(topics={"missing.topic"})
     with pytest.raises(BusError):
         await bus.subscribe(name="test_subscriber", bus_sub_config=cfg)
@@ -69,7 +70,7 @@ async def test_subscribe_unknown_topic_raises_bus_error():
 
 @pytest.mark.asyncio
 async def test_register_topic_validate_ok_same_config():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
     await bus.register_topic(
         "btc.spot",
         priority=TopicPriority.HIGH,
@@ -92,7 +93,7 @@ async def test_register_topic_validate_ok_same_config():
 
 @pytest.mark.asyncio
 async def test_register_topic_validate_schema_mismatch_raises():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
 
     await bus.register_topic("btc.spot", schema=int, validate_schema=True)
     with pytest.raises(TypeError):
@@ -105,7 +106,7 @@ async def test_register_topic_validate_schema_mismatch_raises():
 async def test_register_topic_merge_updates_config():
     # Expected behavior of merge: No none provided values of re-register
     # overwrittes existing topic
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
     await bus.register_topic(
         "btc.spot",
         schema=None,
@@ -133,7 +134,7 @@ async def test_register_topic_merge_updates_config():
 
 @pytest.mark.asyncio
 async def test_register_topic_ignore_keeps_existing_config():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
 
     await bus.register_topic(
         "btc.spot",
@@ -158,7 +159,7 @@ async def test_register_topic_ignore_keeps_existing_config():
 
 @pytest.mark.asyncio
 async def test_register_then_subscribe_reflects_in_topic_stats():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
     await bus.register_topic(
         "btc.spot",
         schema=float,
@@ -173,8 +174,8 @@ async def test_register_then_subscribe_reflects_in_topic_stats():
     assert ts.high_seq == 0
     assert ts._pub_count == 0
     assert ts._last_publish_utc is None
-    assert ts._last_publish_mono is None
-    assert ts._ema_rate == 0
+    assert isinstance(ts._last_stats_mono, float)
+    assert ts._last_stats_count == 0
 
     topic_stats = await bus.topic_stats("btc.spot")
 
@@ -230,7 +231,7 @@ def test_creating_bus_sub_config():
 
 @pytest.mark.asyncio
 async def test_subscribing():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
     await bus.register_topic(name="btc.spot", priority=TopicPriority.HIGH, validate_schema=True)
 
     await bus.register_topic(name="eth.spot", priority=TopicPriority.HIGH, validate_schema=True)
@@ -242,19 +243,26 @@ async def test_subscribing():
     topics = bus._topics
 
     # 1. Checking Bus
-    assert topics["btc.spot"].subscribers == topics["eth.spot"].subscribers == sub
+    # Note: sub is a set of subscriptions.
+    # topics["btc.spot"].subscribers is a set of subscriptions.
+    # We want to check if the single subscription in 'sub' is present in the topic subscribers.
     assert len(sub) == 1
+    subscription_obj = next(iter(sub))
+    assert subscription_obj in topics["btc.spot"].subscribers
+    assert subscription_obj in topics["eth.spot"].subscribers
 
     # 2. Checking Subscription Object
-    sub = bus._subscriptions.pop()
-    assert sub.name == "strategy"
-    assert sub._closed is False
-    assert sub.topics == {"btc.spot", "eth.spot"}
+    # sub is a set, we can't pop from it if we want to keep using it, but here we just want to
+    # inspect
+    # We already got subscription_obj
+    assert subscription_obj.name == "strategy"
+    assert subscription_obj._closed is False
+    assert subscription_obj.topics == {"btc.spot", "eth.spot"}
 
 
 @pytest.mark.asyncio
 async def test_subscribing_error_unknown_topic():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
     await bus.register_topic(name="btc.spot", priority=TopicPriority.HIGH, validate_schema=True)
 
     await bus.register_topic(name="eth.spot", priority=TopicPriority.HIGH, validate_schema=True)
@@ -266,7 +274,7 @@ async def test_subscribing_error_unknown_topic():
 
 @pytest.mark.asyncio
 async def test_unsubscribing():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
     await bus.register_topic(name="btc.spot", priority=TopicPriority.HIGH, validate_schema=True)
 
     await bus.register_topic(name="eth.spot", priority=TopicPriority.HIGH, validate_schema=True)
@@ -335,7 +343,7 @@ candle = Candle(
 
 @pytest.mark.asyncio
 async def test_publish_n_messages():
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
 
     # Topic Management
     await bus.register_topic(name="btc.spot", priority=TopicPriority.HIGH, validate_schema=False)
@@ -365,7 +373,7 @@ async def test_publish_n_messages():
 
 @pytest.mark.asyncio
 async def test_publish_validate_schema():
-    bus = Bus()
+    bus = Bus(BusConfig(validate_schema=True), None)
     await bus.register_topic(
         name="btc.spot", schema=Candle, priority=TopicPriority.HIGH, validate_schema=True
     )
@@ -390,7 +398,7 @@ async def test_publish_per_topic_seq():
     - Independent Sequences across topics
         - each topics seq starts at 1 and increases independently
     """
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
 
     # Topic Management
     await bus.register_topic(name="btc.spot", priority=TopicPriority.HIGH, validate_schema=False)
@@ -443,7 +451,7 @@ async def test_publish_similar_seq():
     - For each published messages, same seq values and in FIFO order per sub
     - sequence unaffected by consumption
     """
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
 
     # Topic Management
     await bus.register_topic(name="btc.spot", priority=TopicPriority.HIGH, validate_schema=False)
@@ -480,7 +488,7 @@ async def test_publish_concurrent_publishers_on_same_topic():
     - Expect: Multiset of that topic is 1,2,...,N, no gaps or duplicates
     - ordering per sub remains FIFO
     """
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
 
     # Topic Management
     await bus.register_topic(name="btc.spot", priority=TopicPriority.HIGH, validate_schema=False)
@@ -507,7 +515,7 @@ async def test_publish_late_subscriber():
     - high_seq increments nevertheless. No enveloped are delivered
     - When subscriver joins later, enqueued_seq starts at 0; no retroactive delivery
     """
-    bus = Bus()
+    bus = Bus(BusConfig(), None)
 
     # Topic Management
     await bus.register_topic(name="btc.spot", priority=TopicPriority.HIGH, validate_schema=False)

@@ -4,6 +4,7 @@ import os
 from typing import Any, Iterable, Iterator, Optional
 
 import pyarrow as pa
+import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 from backtester.config.configs import DataSubscriptionConfig, RunContext
@@ -88,8 +89,9 @@ class ParquetCandleSource(CandleSource):
         # path
         self._target_path = sub_config.target_path
         self._paths = [
+            # TODO (historical data still only has "m", not "m:02d" which it should!)
             self._target_path
-            / f"year={y:04d}/{self._symbol}-{self._timeframe_data}-{y}-{m:02d}.parquet"
+            / f"year={y:04d}/{self._symbol}-{self._timeframe_data}-{y}-{m}.parquet"
             for (y, m) in month_range(self._start_dt, self._end_dt)
         ]
 
@@ -118,118 +120,158 @@ class ParquetCandleSource(CandleSource):
         """
         d_type = self._data_type
         tf_ms = self._tf_ms_data  # normalize using input TF (e.g., 1m)
-        prev_close: Optional[int] = None
+        prev_start: Optional[int] = None
 
         # collect relevant columns (must correspond with Candle datatype)
         cols = [
-            self._data_type.start_col,
-            self._data_type.end_col,
-            self._data_type.o_col,
-            self._data_type.h_col,
-            self._data_type.c_col,
-            self._data_type.l_col,
-            self._data_type.v_col,
-            self._data_type.n_trades_col,
-            self._data_type.is_final_col,
+            d_type.start_col,
+            d_type.end_col,
+            d_type.o_col,
+            d_type.h_col,
+            d_type.l_col,
+            d_type.c_col,
+            d_type.v_col,
+            d_type.n_trades_col,
+            d_type.is_final_col,
         ]
 
         # Open the files iteratively
         for path in self._paths:
             if not os.path.exists(path):
                 raise SourceError(f"Path ({path}) does not exist")
+
             with pq.ParquetFile(path) as pf:
-                schema_cols = set(pf.schema.names)
-                missing = [col for col in cols if col not in schema_cols]
-                if missing:
-                    raise SourceError(f"{self._ctx.run_id}: {path} missing columns {missing}")
-                self._emit_audit("SOURCE_FILE_OPEN")
+                self._validate_schema(pf, cols, path)
+                self._emit_audit("SOURCE_FILE_OPEN", payload={"path": str(path)})
+
                 for batch in pf.iter_batches(
                     batch_size=self._batch_size, columns=cols, use_threads=True
                 ):
                     tbl = pa.Table.from_batches([batch])
                     self._meta.rows_read += tbl.num_rows
 
-                    # Columns arrays
-                    start_arr = tbl[d_type.start_col]  # start_ms
-                    # end_arr not relevant, as end_ms = start_ms + tf_ms
-                    # end_arr = tbl[d_type.end_col] if d_type.end_col in tbl.schema.names else None
-                    o_arr = tbl[d_type.o_col]
-                    h_arr = tbl[d_type.h_col]
-                    l_arr = tbl[d_type.l_col]
-                    c_arr = tbl[d_type.c_col]
-                    v_arr = tbl[d_type.v_col]
-                    n_arr = (
-                        tbl[d_type.n_trades_col]
-                        if d_type.n_trades_col in tbl.schema.names
-                        else None
-                    )
-                    f_arr = (
-                        tbl[d_type.is_final_col]
-                        if d_type.is_final_col in tbl.schema.names
-                        else None
+                    # 1. Filter by time range (Vectorized)
+                    # Keep rows where start_ms >= self._start_ms AND start_ms < self._end_ms
+                    start_col_data = tbl[d_type.start_col]
+                    mask = pc.and_(  # type: ignore
+                        pc.greater_equal(start_col_data, self._start_ms),  # type: ignore
+                        pc.less(start_col_data, self._end_ms),  # type: ignore
                     )
 
+                    # Apply filter
+                    tbl = tbl.filter(mask)
+                    if tbl.num_rows == 0:
+                        continue
+
+                    # 2. Extract columns as python lists (faster .as_py() per cell)
+                    # Use of to_pylist() which is optimized in PyArrow
+                    start_arr = tbl[d_type.start_col].to_pylist()
+                    o_arr = tbl[d_type.o_col].to_pylist()
+                    h_arr = tbl[d_type.h_col].to_pylist()
+                    l_arr = tbl[d_type.l_col].to_pylist()
+                    c_arr = tbl[d_type.c_col].to_pylist()
+                    v_arr = tbl[d_type.v_col].to_pylist()
+
+                    # Handle optional columns
+                    n_arr = (
+                        tbl[d_type.n_trades_col].to_pylist()
+                        if d_type.n_trades_col in tbl.schema.names
+                        else [0] * tbl.num_rows
+                    )
+                    f_arr = (
+                        tbl[d_type.is_final_col].to_pylist()
+                        if d_type.is_final_col in tbl.schema.names
+                        else [True] * tbl.num_rows
+                    )
+
+                    # 3. Iterate and yield
                     for i in range(tbl.num_rows):
-                        # validate field and return
-                        trades_val = (
-                            int(n_arr[i].as_py())
-                            if n_arr is not None and n_arr[i].as_py() is not None
-                            else 0
-                        )
-                        is_final_val = (
-                            bool(f_arr[i].as_py())
-                            if f_arr is not None and f_arr[i].as_py() is not None
-                            else None
-                        )
-                        start_ms = int(start_arr[i].as_py())
-                        end_ms = start_ms + tf_ms  # normalize close to exact bucket end
+                        start_ms = int(start_arr[i])
+                        end_ms = start_ms + tf_ms
+
+                        # Monotonicity & Gap Check
+                        if prev_start is not None:
+                            if start_ms < prev_start:
+                                self._meta.rows_dropped += 1
+                                self._emit_audit(
+                                    "SOURCE_ROW_DROPPED_MONOTONICITY",
+                                    level="WARN",
+                                    payload={"start_ms": start_ms, "prev_start": prev_start},
+                                )
+                                continue
+                            elif start_ms == prev_start:
+                                self._meta.rows_dropped += 1
+                                self._emit_audit(
+                                    "SOURCE_ROW_DROPPED_DUPLICATE",
+                                    level="WARN",
+                                    payload={"start_ms": start_ms},
+                                )
+                                continue
+                            elif start_ms > prev_start + tf_ms:
+                                # Gap detected
+                                gap_size = start_ms - (prev_start + tf_ms)
+                                self._emit_audit(
+                                    "SOURCE_GAP_DETECTED",
+                                    level="WARN",
+                                    payload={
+                                        "gap_ms": gap_size,
+                                        "prev_end": prev_start + tf_ms,
+                                        "curr_start": start_ms,
+                                    },
+                                )
+
+                        is_final = bool(f_arr[i]) if f_arr[i] is not None else True
+                        if not is_final:
+                            self._emit_audit(
+                                "SOURCE_ROW_FAILED_NON_FINAL",
+                                level="DEBUG",
+                                payload={"ts": start_ms},
+                            )
+                            self._meta.rows_failed += 1
+                            continue
+
                         candle = Candle(
                             symbol=self._symbol,
                             timeframe=self._timeframe_data,
                             start_ms=start_ms,
                             end_ms=end_ms,
-                            open=float(o_arr[i].as_py()),
-                            high=float(h_arr[i].as_py()),
-                            low=float(l_arr[i].as_py()),
-                            close=float(c_arr[i].as_py()),
-                            volume=float(v_arr[i].as_py()),
-                            trades=trades_val,
-                            is_final=is_final_val,
+                            open=float(o_arr[i]),
+                            high=float(h_arr[i]),
+                            low=float(l_arr[i]),
+                            close=float(c_arr[i]),
+                            volume=float(v_arr[i]),
+                            trades=int(n_arr[i]) if n_arr[i] is not None else 0,
+                            is_final=is_final,
                         )
-
-                        # Light checks: Final bar and monotonicity guard rails
-                        close_ms = start_ms + tf_ms
-                        if is_final_val is False:
-                            self._emit_audit(
-                                "SOURCE_ROW_FAILED_NON_FINAL", level="DEBUG", payload=candle
-                            )
-                            self._meta.rows_failed += 1
-                            continue
-                            raise SourceError(f"Not final_value at {path} for {close_ms}")
-
-                        # Monotonicity Guard rails
-                        if prev_close is not None and close_ms < prev_close:
-                            self._meta.rows_dropped += 1
-                            self._emit_audit(
-                                "SOURCE_ROW_DROPPED_MONOTONICITY",
-                                level="WARN",
-                                payload={"candle": candle, "prev_close": prev_close},
-                            )
-                            continue
-                            raise RuntimeError(
-                                f"Non-monotonic time at {path}: {close_ms} < {prev_close}"
-                            )
-                            # Could be a double candle as well.
 
                         # Metadata managing
                         self._meta.rows_emitted += 1
                         if self._meta.first_ts is None:
-                            self._meta.first_ts = close_ms
-                        self._meta.last_ts = close_ms
+                            self._meta.first_ts = start_ms
+                        self._meta.last_ts = start_ms
 
-                        prev_close = close_ms
-
+                        prev_start = start_ms
                         yield candle
+
+    def _validate_schema(self, pf: pq.ParquetFile, required_cols: list[str], path: Any) -> None:
+        schema_cols = set(pf.schema.names)
+        # Filter out columns that are optional or we handle gracefully if missing
+        # (like n_trades, is_final)
+
+        critical_cols = [
+            self._data_type.start_col,
+            self._data_type.o_col,
+            self._data_type.h_col,
+            self._data_type.l_col,
+            self._data_type.c_col,
+            self._data_type.v_col,
+        ]
+        missing_critical = [col for col in critical_cols if col not in schema_cols]
+
+        if missing_critical:
+            raise SourceError(
+                f"{self._ctx.run_id}: {path} missing critical columns {missing_critical}"
+            )
 
     def _emit_audit(
         self,

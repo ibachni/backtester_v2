@@ -5,7 +5,7 @@ import hashlib
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel
 
@@ -115,6 +115,14 @@ class DataSubscriptionConfig:
         return d.astimezone(dt.timezone.utc)
 
 
+AlignPolicy = Literal["outer", "inner"]
+
+
+@dataclass(slots=True)
+class FeederConfig:
+    align: AlignPolicy = "outer"
+
+
 # --- Core Section ---
 
 
@@ -125,7 +133,26 @@ class AccountConfig:
 
 @dataclass(frozen=True)
 class AuditConfig:
+    log_dir: Path
+    capture_market_data: bool = False
     pass
+
+
+@dataclass
+class SubscriptionConfig:
+    topics: set[str]
+    # None means "use topic defaults or bus default"
+    buffer_size: Optional[int] = None
+
+
+@dataclass
+class BusConfig:
+    # seconds to wait between flush state checks (how often flush()
+    # re-checks progress if no events arrive)
+    flush_check_interval: float = 0.01
+    # default mailbox size when a subscription doesn't specify one and topics don't either
+    default_buffer_size: int = 1024
+    validate_schema: bool = False
 
 
 # --- Backtest aggregation ---
@@ -135,8 +162,7 @@ class AuditConfig:
 class BacktestConfig:
     run_name: str
     # strategy_params: Mapping[str, BacktestParams]  # Strategy: StrategyParams
-    # audit_cfg = AuditConfig
-    downloader_cfg: DownloaderConfig
+    audit_cfg: AuditConfig
     # source_cfg = list[DataSubscriptionConfig]
 
 

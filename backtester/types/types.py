@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Deque, Literal, Mapping, Optional, Tuple
@@ -134,6 +135,24 @@ class IngestStats:
 
 class ExecSimError(Exception):
     """Raised for Errors in the Execution Simulator"""
+
+
+# --- Audit ---
+
+
+@dataclass
+class LogEvent:
+    """
+    Generic structure for unstructured logging from Strategy/Modules.
+    Goes to: debug.jsonl
+    """
+
+    level: str  # DEBUG, INFO, WARN, ERROR
+    component: str
+    msg: str
+    payload: dict[str, Any] = field(default_factory=dict)
+    sim_time: Optional[int] = None
+    wall_time: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
 
 
 # --- Candle ---

@@ -156,7 +156,7 @@ class BacktestEngine:
         else:
             fp = base / f"{int(time.time() * 1000)}.ndjson"
         self._audit_path = fp
-        return AuditWriter(run_ctx=self._run_ctx, cfg=AuditConfig(), path=str(fp))
+        return AuditWriter(run_ctx=self._run_ctx, cfg=AuditConfig(fp))
 
     def _emit_audit(
         self,
@@ -437,13 +437,6 @@ class BacktestEngine:
 
         dt = time.perf_counter() - t0
         return {"frames": frames, "candles": candles, "duration_ms": int(dt * 1000)}
-
-    #         sub_config_2 = SubscriptionConfig(
-    # symbol = "ETHUSDT",
-    # start_dt = dt.datetime(2019,1,1, tzinfo=dt.timezone.utc),
-    # end_dt = dt.datetime(2025,1,1, tzinfo=dt.timezone.utc),
-    # timeframe = "1h",
-    # timeframe_data = "1m"
 
     # --- SIM SECTION ----
 

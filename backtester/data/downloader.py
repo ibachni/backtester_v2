@@ -68,11 +68,8 @@ class DownloaderFiles:
 
         # Logging (Individual Logger)
         Path(self._log_dir).mkdir(parents=True, exist_ok=True)
-        audit_path = Path(self._log_dir) / "audit" / f"{self._run_id}.ndjson"
-        audit_path.parent.mkdir(parents=True, exist_ok=True)
-        self._audit = AuditWriter(
-            run_ctx=self._run_ctx, cfg=AuditConfig(), path=str(audit_path), run_id=self._run_id
-        )
+        audit_cfg = AuditConfig(log_dir=Path(self._log_dir) / "audit")
+        self._audit = AuditWriter(run_ctx=self._run_ctx, cfg=audit_cfg)
 
         # Request
         self._default_user_agent: str = (

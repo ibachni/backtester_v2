@@ -1,14 +1,28 @@
 from __future__ import annotations
 
+import csv
 import json
-import time
+import queue
+import threading
 from collections import Counter
+from dataclasses import asdict
 from datetime import datetime, timezone
 from functools import singledispatchmethod
 from pathlib import Path
-from typing import Any, Iterator, Optional, Union
+from typing import Any, Iterator, Optional, Protocol, Union, runtime_checkable
+
+import orjson
 
 from backtester.config.configs import AuditConfig, RunContext
+from backtester.core.bus import Envelope
+from backtester.core.topics import (
+    T_ACCOUNT_SNAPSHOT,
+    T_CANDLES,
+    T_FILLS,
+    T_ORDERS_ACK,
+    T_ORDERS_CANCELED,
+    T_TRADE_EVENT,
+)
 from backtester.types.types import (
     AuditRecord,
     Candle,
@@ -18,8 +32,10 @@ from backtester.types.types import (
     MarketOrderIntent,
     OrderAck,
     OrderIntent,
+    PortfolioSnapshot,
     StopLimitOrderIntent,
     StopMarketOrderIntent,
+    TradeEvent,
     ValidatedLimitOrderIntent,
     ValidatedMarketOrderIntent,
     ValidatedOrderIntent,
@@ -28,8 +44,40 @@ from backtester.types.types import (
 )
 
 
+@runtime_checkable
+class BusEvent(Protocol):
+    """Typing for any event coming from the Pub/Sub bus."""
+
+    pass
+
+
 class AuditWriter:
     """
+    - Ideally non blocking, since disk I/) is slow
+    - Accumulate events in memory buffer and flush them in chunks
+    (e.g., every 1000 events, or 500ms)
+    - Granularity levels:
+        Level 0: Final PnL and statistics
+        Level 1: Trades (only filled trades and daily equity)
+        Level 2: Orders (All Submissions, cancels, modifications)
+        Level 3: Full debug (all of the above + internal calc logs and
+        market snapshots)
+    - Should allow for pluggable StorageBackends
+    - Dual timestamping (sim and wall-clock)
+    - Events must be written in the strict sequence they occured
+    - UniqueIdentifiers (each Order/Trade has unique ID)
+        - > Parent/Child linking (partial fills reference original Order ID)
+
+
+    Achieve this:
+    - Stop logging candles
+    - Split the output:
+        - sim_trades.csv (result analysis)
+        - sim_debug.jsonl (deep-dive debugging)
+        - Logging not in the modules
+
+
+
     Simple NDJSON audit logger. Write dict-like events to a file, one JSON per line.
 
     Core functionality:
@@ -60,18 +108,188 @@ class AuditWriter:
     # TODO: Addition of _should_log, which compares the level by component with the provided level
     # Goal: Determine whether it is worth logging.
 
+    Asynchronous subscriber, Synchronous writer.
+    Architecture:
+    [Async Bus] -> await on_event() -> [Memory Queue] -> [Worker Thread] -> [Disk IO]
+
+
+    Working:
+    - 1. The ProducerStrategy / exchange calls audit.on_event(event)
+        - Async but no await; simply pushes object into a queue.SimpleQueue
+    - 2. The Buffer (Queue): for many event quickly generated, it waits to be processed
+    - 3. The consumer (Worker thread):
+        - _io_worker loop runs a seperate background thread
+        - Pulls an item off the queue
+        - sends it to the respective stream
+
+    Now:
+    - Add all event types!
+
+    Post MVP additions:
+    - Use dictionary mapping topics to file handlers / or configuration-driven apporoach
+    - Batching (wait on rows, then write some)
+    - Filter for debug logs (if event.evel < self.min_level)
+    - __init__ hardcoded to disc
+    - Zero-copy serialization
+    - Pluggable storage (SQL)
+    - Reading/ parsing back into the system
+    - new equity_curve.csv file (for AccountSnapshots)
+    - Crash recovery (flush on signal)
+    - Scalability
+        - (Binary storage parquet/HDF5 -> pandas.DataFrame.to_parquet (batched)
+        - if file too large, close and start debug_02.jsonl (to prevent file system errors)
     """
 
-    def __init__(
-        self, run_ctx: RunContext, cfg: AuditConfig, path: str, run_id: Optional[str] = None
-    ) -> None:
+    def __init__(self, run_ctx: RunContext, cfg: AuditConfig) -> None:
         self._run_ctx = run_ctx
         self._cfg = cfg
-        self._path = Path(path)
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        self._fh = self._path.open("a")
-        self._run_id = run_id or str(int(time.time()))
+        self.root = Path(cfg.log_dir) / run_ctx.run_id
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.capture_data = cfg.capture_market_data
+
+        # Concurreny bridge between async bus and sync disk
+        self._queue: queue.Queue = queue.Queue(maxsize=10000)
+        self._stop_event = threading.Event()
+        self._worker_thread = threading.Thread(
+            target=self._io_worker, daemon=True, name="AuditWorker"
+        )
+
+        # File handles
+        self._files: dict[str, Any] = {}
+        self._csv_writers: dict[str, csv.DictWriter] = {}
+
+        # Legacy - write to parent directory with run_id as filename
         self._seq = 0
+        legacy_file = Path(cfg.log_dir) / f"{run_ctx.run_id}.ndjson"
+        self._fh = legacy_file.open("a")
+
+    def start(self) -> None:
+        """Start the background writer thread."""
+        self._worker_thread.start()
+
+    def stop(self) -> None:
+        """Signal worker to finish queue and close files."""
+        if self._worker_thread.is_alive():
+            self._queue.put(None)  # Sentinel to stop
+            self._worker_thread.join(timeout=5.0)
+        # Close legacy file handle
+        if hasattr(self, "_fh") and self._fh and not self._fh.closed:
+            self._fh.close()
+
+    # --- Public Subscriber Interface (Async) ---
+
+    async def on_event(self, event: BusEvent):
+        """
+        Registered callback for the Pub/Sub bus.
+        Non-blocking: merely pushes to memory queue.
+        """
+        # We wrap the event to handle it safely in the thread
+        self._queue.put(event)
+
+    # --- Internal Worker Loop (Sync) ---
+
+    def _io_worker(self):
+        """
+        Runs in a separate thread. Handles file opening, writing, and flushing.
+        """
+        # Open Streams
+        self._open_streams()
+
+        while True:
+            item = self._queue.get()
+
+            if item is None:  # Sentinel received
+                self._close_streams()
+                break
+            try:
+                self._route_event(item)
+            except Exception as e:
+                # Fallback: Don't crash the thread, just log to stderr
+                print(f"AuditWriter Error: {e}")
+
+    def _route_event(self, event: Envelope):
+        """
+        Decides which stream (file) the event belongs to.
+        """
+        # 1. LEDGER STREAM (Transactions - CSV)
+        # Highly structured, used for PnL calculation.
+        if event.topic == T_FILLS and isinstance(event.payload, Fill):
+            self._write_json("ledger.jsonl", self.fill_to_payload(event.payload))
+
+        elif event.topic == T_ORDERS_ACK and isinstance(event.payload, OrderAck):
+            self._write_json("ledger.jsonl", self.ack_to_payload(event.payload))
+
+        elif event.topic == T_ORDERS_CANCELED and isinstance(event.payload, OrderIntent):
+            self._write_json("ledger.jsonl", self.intent_to_payload(event.payload))
+
+        elif event.topic == T_TRADE_EVENT and isinstance(event.payload, TradeEvent):
+            self._write_json("ledger.jsonl", self.trade_event_to_payload(event.payload))
+
+        # 2. ACCOUNT STREAM (CSV)
+
+        # TODO Metrics to be implemented (Summary)
+        # elif event.topic == T_METRICS and isinstance(event.payload, TradeEvent):
+        #     self._write_csv("metrics.csv", self.intent_to_payload(event.payload))
+
+        elif event.topic == T_ACCOUNT_SNAPSHOT and isinstance(event.payload, PortfolioSnapshot):
+            self._write_csv("metrics.csv", self.portfolio_to_payload(event.payload))
+
+        # 3. DEBUG STREAM (Context - JSONL)
+        # Unstructured, used for debugging strategy logic.
+        elif event.topic in ("orders.intent", "orders.sanitized", "control", "log.event"):
+            # Wrap with topic for clarity in the JSON file
+            record = {
+                "topic": event.topic,
+                "ts_wall": datetime.now(timezone.utc).isoformat(),
+                "payload": asdict(event.payload)
+                if hasattr(event.payload, "__dataclass_fields__")
+                else str(event.payload),
+            }
+            self._write_json("debug.jsonl", record)
+
+        # 4. DATA STREAM (Market Data - JSONL)
+        # High volume, optional.
+        elif event.topic == T_CANDLES and isinstance(event.payload, Candle):
+            if self.capture_data:
+                self._write_json("market_data.jsonl", asdict(event))
+
+    # --- Writers ---
+
+    def _write_csv(self, filename: str, data: dict):
+        """Lazy-init CSV writer ensures headers are correct based on first record."""
+        if filename not in self._files:
+            f = (self.root / filename).open("w", newline="")
+            self._files[filename] = f
+
+            writer = csv.DictWriter(f, fieldnames=data.keys())
+            writer.writeheader()
+            self._csv_writers[filename] = writer
+
+        # Write the row
+        self._csv_writers[filename].writerow(data)
+        self._files[filename].flush()
+
+    def _write_json(self, filename: str, data: dict):
+        if filename not in self._files:
+            self._files[filename] = (self.root / filename).open("ab")
+
+        # Use default=str to handle UUIDs, Decimals, Dates safely
+        line = orjson.dumps(data)
+        self._files[filename].write(line + b"\n")
+
+    def _open_streams(self):
+        # Files are opened lazily in _write methods, but we prepare directory
+        pass
+
+    def _close_streams(self):
+        for f in self._files.values():
+            try:
+                f.flush()
+                f.close()
+            except Exception as e:
+                print(e)
+
+    # --- Legacy implementations ---
 
     def emit(
         self,
@@ -86,7 +304,9 @@ class AuditWriter:
         order_id: Optional[str] = None,
         parent_id: Optional[str] = None,
     ) -> None:
+        """Legacy implementation"""
         self._seq += 1
+
         rec_1 = {
             "seq": self._seq,
             "component": component,
@@ -94,25 +314,26 @@ class AuditWriter:
             "event": event,
             "payload": payload or {},
         }
-        rec_2 = {
-            "symbol": symbol,
-            "order_id": order_id,
-            "parent_id": parent_id,
-        }
 
         rec_3 = {
             "sim_time": sim_time,
             "schema_ver": 1,
-            "run_id": self._run_id,
+            "run_id": self._run_ctx.run_id,
             "ts_wall": datetime.now(timezone.utc).isoformat(),
         }
         if simple:
             rec = rec_1 | rec_3
+
         else:
+            rec_2 = {
+                "symbol": symbol,
+                "order_id": order_id,
+                "parent_id": parent_id,
+            }
             rec = rec_1 | rec_2 | rec_3
-        line = json.dumps(rec, default=str)
+
+        line = json.dumps(rec)
         self._fh.write(line + "\n")
-        self._fh.flush()
         self._fh.flush()
 
     def close(self) -> None:
@@ -123,7 +344,9 @@ class AuditWriter:
 
     @property
     def run_id(self) -> str:
-        return self._run_id
+        return self._run_ctx.run_id
+
+    # --- Converters ---
 
     # --- OrderIntent to payload ---
 
@@ -281,6 +504,33 @@ class AuditWriter:
             "rebates": str(fill.rebates),
             "slippage_components": fill.slippage_components,
             "tags": list(fill.tags),
+        }
+
+    def trade_event_to_payload(self, trade: TradeEvent) -> dict[str, Any]:
+        return {
+            "ts": trade.ts,
+            "symbol": trade.symbol,
+            "side": trade.side,
+            "qty": trade.qty,
+            "price": trade.price,
+            "fee": trade.fee,
+            "venue": trade.venue,
+            "liquidity_flag": trade.liquidity_flag,
+            "idempotency_key": trade.idempotency_key,
+        }
+
+    def portfolio_to_payload(self, snap: PortfolioSnapshot) -> dict[str, Any]:
+        return {
+            "ts": snap.ts,
+            "base_ccy": snap.base_ccy,
+            "cash": snap.cash,
+            "equity": snap.equity,
+            "upnl": snap.upnl,
+            "rpnl": snap.rpnl,
+            "gross_exposure": snap.gross_exposure,
+            "net_exposure": snap.net_exposure,
+            "fees_paid": snap.fees_paid,
+            "positions": snap.positions,
         }
 
     def control_to_payload(self, control: ControlEvent) -> dict[str, Any]:

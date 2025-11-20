@@ -4,15 +4,20 @@ import asyncio
 import time
 from dataclasses import dataclass, field
 from enum import Enum, IntEnum
-from typing import Any, Callable, Iterable, Optional, Tuple, Type
+from typing import TYPE_CHECKING, Any, Callable, Iterable, Optional, Tuple, Type
 
-from backtester.core.audit import AuditWriter
+from backtester.config.configs import BusConfig, SubscriptionConfig
 from backtester.core.clock import Millis
+from backtester.errors.errors import BusError
+
+if TYPE_CHECKING:
+    from backtester.core.audit import AuditWriter
 
 # --- Data structures and config ---
 
 # TODO: 1. Pause and resume in subscription
 # TODO: 2. coalescing (per-topic key): reduce redundant backlog (e.g., last price per symbol)
+# TODO: 3. In backtest, only allow block (not block newest etc.)
 
 
 @dataclass(frozen=True)
@@ -26,19 +31,6 @@ class Envelope:
     # priority: int
     # seq: int # per topic, strictly increasing numer.
     # key: str \ None # optional de-dup key
-
-
-class BusError(Exception):
-    "Error in connection with the bus"
-
-
-@dataclass
-class BusConfig:
-    # seconds to wait between flush state checks (how often flush()
-    # re-checks progress if no events arrive)
-    flush_check_interval: float = 0.01
-    # default mailbox size when a subscription doesn't specify one and topics don't either
-    default_buffer_size: int = 1024
 
 
 class TopicPriority(IntEnum):
@@ -133,21 +125,18 @@ class _TopicState:
     name: str
     config: TopicConfig = field(default_factory=TopicConfig)
     subscribers: set["Subscription"] = field(default_factory=set)
+    # CACHE: Sorted list of subscribers for deterministic iteration in hot path
+    _subscribers_ordered: list["Subscription"] = field(default_factory=list)
+
     created_at_utc: float = field(default_factory=lambda: time.time())
     high_seq: int = 0
 
     # Observability
     _pub_count: int = 0  # total published on this topic
     _last_publish_utc: Optional[float] = None  # last publish monotonic time
-    _last_publish_mono: Optional[float] = None  # last publish UTC timestamp
-    _ema_rate: float = 0.0  # EMA of publish rate (events/sec), simple alpha=0.2
 
-
-@dataclass
-class SubscriptionConfig:
-    topics: set[str]
-    # None means "use topic defaults or bus default"
-    buffer_size: Optional[int] = None
+    _last_stats_mono: float = field(default_factory=time.monotonic)
+    _last_stats_count: int = 0
 
 
 class Subscription:
@@ -194,6 +183,7 @@ class Subscription:
 
     async def __anext__(self) -> Envelope:
         item = await self.queue.get()
+        self.queue.task_done()
         if item is None:
             # Shutdown sentinel, raise to end the loop
             raise StopAsyncIteration
@@ -205,6 +195,7 @@ class Subscription:
         Await one envelope; returns None if sentinel is received.
         """
         item = await self.queue.get()
+        self.queue.task_done()
         if item is None:
             return None
         self._delivered += 1
@@ -219,6 +210,7 @@ class Subscription:
                 item = await self.queue.get()
             else:
                 item = await asyncio.wait_for(self.queue.get(), timeout=timeout)
+            self.queue.task_done()
         except asyncio.TimeoutError:
             return None
         if item is None:
@@ -271,6 +263,7 @@ class Subscription:
             except asyncio.QueueFull:
                 try:
                     victim = self.queue.get_nowait()
+                    self.queue.task_done()
                     self._drops += 1
                     try:
                         self.bus._record_drop(
@@ -385,6 +378,7 @@ class Subscription:
         victim: Optional[Envelope] = None
         try:
             victim = q.get_nowait()
+            self.queue.task_done()
             if victim is None:
                 q.put_nowait(None)
                 self._drops += 1
@@ -435,15 +429,20 @@ class Bus:
         - 5.1. Keeping a set of consumers (Subscriptions)
         - 5.2. Keeping a mapping of str (topic) to set of consumers (Subscription)
         - 5.3. Keeping a mapping of str (topic) to the topic state
+
+    Later additions
+    - Middleware layer to inject delays between publish and receipt
+    - Shuffle delivery order (out-of-order handling stress test)
+    - Drop/fail simulation
+    -
     """
 
     # 1. Add Deterministic per-topic sequencing (owned by the bus)
     # 1.1. Implement per-topic high watermark inetefer per topic
 
-    def __init__(
-        self, config: Optional[BusConfig] = None, *, audit: Optional[AuditWriter] = None
-    ) -> None:
-        self._cfg = config or BusConfig()
+    def __init__(self, cfg: BusConfig, audit: Optional[AuditWriter]) -> None:
+        self._cfg = cfg
+        self._audit = audit
         self._state: _BusState = _BusState.RUNNING
 
         # Active Subscriptions
@@ -545,6 +544,15 @@ class Bus:
         Register a drop hook: callback(topic, subscriber_name, envelope_or_none, reason).
         """
         self._on_drop.append(callback)
+
+    async def wait_until_idle(self):
+        """
+        Barrier. Blocks until ALL items in ALL queues have been processed.
+        """
+        wait_tasks = [sub.queue.join() for sub in self._subscriptions]
+        # Wait for all of them to hit zero pending tasks simultaneously
+        if wait_tasks:
+            await asyncio.gather(*wait_tasks)
 
     # --- Topic Management ---
 
@@ -768,6 +776,8 @@ class Bus:
                     raise BusError(f"Topic {t!r} not registered")
                 # .add() avoids double registering any consumers
                 ts.subscribers.add(sub)
+                # Update deterministic cache
+                ts._subscribers_ordered = sorted(ts.subscribers, key=lambda s: s.name)
             self._subscriptions.add(sub)
 
         self._emit_audit(
@@ -794,6 +804,8 @@ class Bus:
                 self._subscriptions.remove(subscription)
             for ts in self._topics.values():
                 ts.subscribers.discard(subscription)
+                ts._subscribers_ordered = sorted(ts.subscribers, key=lambda s: s.name)
+
         self._emit_audit(
             "BUS_SUBSCRIBER_DETACHED",
             simple=True,
@@ -814,13 +826,20 @@ class Bus:
         if self._state != _BusState.RUNNING:
             raise RuntimeError("Cannot publish: bus is closing/closed")
 
+        if not isinstance(ts_utc, int):
+            raise ValueError(f"ts_utc is of type {type(ts_utc)}")
+
         # 1. Grab subscribers
         async with self._lock:
             tstate = self._topics.get(topic)
             if tstate is None:
                 raise BusError(f"Publish: Topic {topic} unknown")
-            if tstate.config.validate_schema and tstate.config.schema is not None:
-                # Schema validation!
+
+            if (
+                self._cfg.validate_schema  # disabled per default for speed
+                and tstate.config.validate_schema
+                and tstate.config.schema is not None
+            ):
                 if not isinstance(payload, tstate.config.schema):
                     msg = (
                         f"Schema {tstate.config.schema} does not align with payload type "
@@ -832,23 +851,12 @@ class Bus:
             tstate.high_seq += 1
             seq = tstate.high_seq
 
-            # Stats
-            now_mono = time.monotonic()
-            now_utc = ts_utc
+            # Update stats (minimal)
             tstate._pub_count += 1
-            if tstate._last_publish_mono is not None:
-                dt = now_mono - tstate._last_publish_mono
-                if dt > 0:
-                    inst_rate = 1.0 / dt
-                    # EMA smoothing (alpha=0.2)
-                    tstate._ema_rate = 0.2 * inst_rate + 0.8 * tstate._ema_rate
+            tstate._last_publish_utc = ts_utc
 
-            else:
-                # Initialize EMA
-                tstate._ema_rate = tstate._ema_rate or 0.0
-            tstate._last_publish_mono = now_mono
-            tstate._last_publish_utc = now_utc
-            subscribers = list(tstate.subscribers)
+            # copy subscribers to release lock early
+            subscribers = list(tstate._subscribers_ordered)
 
         if not subscribers and topic not in self._no_sub_once:
             self._no_sub_once.add(topic)
@@ -872,6 +880,25 @@ class Bus:
             await asyncio.sleep(0)
         else:
             pass
+
+            # # Stats
+            # now_mono = time.monotonic()  # TODO not deterministic!
+            # now_utc = ts_utc
+            # tstate._pub_count += 1
+            # if tstate._last_publish_mono is not None:
+            #     dt = now_mono - tstate._last_publish_mono
+            #     if dt > 0:
+            #         inst_rate = 1.0 / dt
+            #         # EMA smoothing (alpha=0.2)
+            #         tstate._ema_rate = 0.2 * inst_rate + 0.8 * tstate._ema_rate
+
+            # else:
+            #     # Initialize EMA
+            #     tstate._ema_rate = tstate._ema_rate or 0.0
+            # tstate._last_publish_mono = now_mono
+            # tstate._last_publish_utc = now_utc
+            # subscribers = list(tstate.subscribers)
+
             # self._emit_audit(
             #     "BUS_PUBLISH_DROPPED",
             #     level="WARN",
@@ -890,7 +917,7 @@ class Bus:
         topic: str,
         payloads: Iterable[Any],
         *,
-        ts_utc: Optional[float] = None,
+        ts_utc: int,
         urgent: bool = False,
         timeout_per_item: Optional[float] = None,
     ) -> Tuple[int, int]:
@@ -911,7 +938,11 @@ class Bus:
             if tstate is None:
                 raise BusError(f"publish_batch: Topic {topic} unknown")
 
-            if tstate.config.validate_schema and tstate.config.schema is not None:
+            if (
+                self._cfg.validate_schema
+                and tstate.config.validate_schema
+                and tstate.config.schema is not None
+            ):
                 for p in payloads:
                     if not isinstance(p, tstate.config.schema):
                         msg = (
@@ -924,19 +955,13 @@ class Bus:
             first_seq = tstate.high_seq + 1
             last_seq = tstate.high_seq + n
             tstate.high_seq = last_seq
-            subscribers = list(tstate.subscribers)
 
-            # Stats update (approximate but cheap)
-            now_mono = time.monotonic()
+            # use cached ordered list (determinism + speed)
+            subscribers = list(tstate._subscribers_ordered)
+
+            # Stats update (minimal, no syscalls)
             tstate._pub_count += n
-            if tstate._last_publish_mono is not None:
-                dt = now_mono - tstate._last_publish_mono
-                if dt > 0:
-                    inst_rate = n / dt
-                    tstate._ema_rate = 0.2 * inst_rate + 0.8 * tstate._ema_rate
-            tstate._last_publish_mono = now_mono
-            # TODO time.time() vs clock
-            tstate._last_publish_utc = time.time() if ts_utc is None else ts_utc
+            tstate._last_publish_utc = ts_utc
 
         if not subscribers and topic not in self._no_sub_once:
             self._no_sub_once.add(topic)
@@ -948,9 +973,9 @@ class Bus:
             )
 
         # Build envs
-        base_ts = time.time() if ts_utc is None else ts_utc
+        base_ts = ts_utc
         envs = [
-            Envelope(topic=topic, seq=(first_seq + i), ts=Millis(base_ts), payload=p)
+            Envelope(topic=topic, seq=(first_seq + i), ts=int(base_ts), payload=p)
             for i, p in enumerate(payloads_list)
         ]
         any_enqueued = False
@@ -1033,8 +1058,19 @@ class Bus:
             subs = list(ts.subscribers)
             cfg = ts.config
             pub_count = ts._pub_count
-            rate = ts._ema_rate
             last_pub = ts._last_publish_utc
+
+            # Calculate rate lazily (metrics decoupling)
+            now_mono = time.monotonic()
+            delta_t = now_mono - ts._last_stats_mono
+            delta_count = pub_count - ts._last_stats_count
+
+            rate = 0.0
+            if delta_t > 0:
+                rate = delta_count / delta_t
+
+            ts._last_stats_mono = now_mono
+            ts._last_stats_count = pub_count
 
             if not subs:
                 low_watermark = high_seq
