@@ -178,7 +178,7 @@ class AuditWriter:
 
     # --- Public Subscriber Interface (Async) ---
 
-    async def on_event(self, event: BusEvent):
+    async def on_event(self, event: BusEvent) -> None:
         """
         Registered callback for the Pub/Sub bus.
         Non-blocking: merely pushes to memory queue.
@@ -188,7 +188,7 @@ class AuditWriter:
 
     # --- Internal Worker Loop (Sync) ---
 
-    def _io_worker(self):
+    def _io_worker(self) -> None:
         """
         Runs in a separate thread. Handles file opening, writing, and flushing.
         """
@@ -207,7 +207,7 @@ class AuditWriter:
                 # Fallback: Don't crash the thread, just log to stderr
                 print(f"AuditWriter Error: {e}")
 
-    def _route_event(self, event: Envelope):
+    def _route_event(self, event: Envelope) -> None:
         """
         Decides which stream (file) the event belongs to.
         """
@@ -255,7 +255,7 @@ class AuditWriter:
 
     # --- Writers ---
 
-    def _write_csv(self, filename: str, data: dict):
+    def _write_csv(self, filename: str, data: dict) -> None:
         """Lazy-init CSV writer ensures headers are correct based on first record."""
         if filename not in self._files:
             f = (self.root / filename).open("w", newline="")
@@ -269,7 +269,7 @@ class AuditWriter:
         self._csv_writers[filename].writerow(data)
         self._files[filename].flush()
 
-    def _write_json(self, filename: str, data: dict):
+    def _write_json(self, filename: str, data: dict) -> None:
         if filename not in self._files:
             self._files[filename] = (self.root / filename).open("ab")
 
@@ -277,11 +277,11 @@ class AuditWriter:
         line = orjson.dumps(data)
         self._files[filename].write(line + b"\n")
 
-    def _open_streams(self):
+    def _open_streams(self) -> None:
         # Files are opened lazily in _write methods, but we prepare directory
         pass
 
-    def _close_streams(self):
+    def _close_streams(self) -> None:
         for f in self._files.values():
             try:
                 f.flush()

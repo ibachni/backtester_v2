@@ -89,7 +89,7 @@ class ParquetCandleSource(CandleSource):
         # path
         self._target_path = sub_config.target_path
         self._paths = [
-            # TODO (historical data still only has "m", not "m:02d" which it should!)
+            # TODO (historical data still only has "m", not "m:02d" which it shou)
             self._target_path
             / f"year={y:04d}/{self._symbol}-{self._timeframe_data}-{y}-{m}.parquet"
             for (y, m) in month_range(self._start_dt, self._end_dt)
@@ -153,9 +153,9 @@ class ParquetCandleSource(CandleSource):
                     # 1. Filter by time range (Vectorized)
                     # Keep rows where start_ms >= self._start_ms AND start_ms < self._end_ms
                     start_col_data = tbl[d_type.start_col]
-                    mask = pc.and_(  # type: ignore
-                        pc.greater_equal(start_col_data, self._start_ms),  # type: ignore
-                        pc.less(start_col_data, self._end_ms),  # type: ignore
+                    mask = pc.and_(
+                        pc.greater_equal(start_col_data, self._start_ms),
+                        pc.less(start_col_data, self._end_ms),
                     )
 
                     # Apply filter

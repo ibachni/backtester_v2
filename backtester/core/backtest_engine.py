@@ -7,10 +7,17 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Any, Callable, Coroutine, Mapping, Optional
 
-from backtester.config.configs import AccountConfig, AuditConfig, BacktestConfig, RunContext
+from backtester.config.configs import (
+    AccountConfig,
+    AuditConfig,
+    BacktestConfig,
+    BusConfig,
+    RunContext,
+    SubscriptionConfig,
+)
 from backtester.core.account import Account
 from backtester.core.audit import AuditWriter
-from backtester.core.bus import Bus, Subscription, SubscriptionConfig, TopicPriority
+from backtester.core.bus import Bus, Subscription, TopicPriority
 from backtester.core.clock import Clock
 from backtester.core.performance import MetricsConfig, MetricsEngine
 from backtester.core.utility import dec
@@ -114,10 +121,11 @@ class BacktestEngine:
         # self._state = "created"
 
         # Bus
-        self._bus = Bus()
 
         # Auditing
         self._audit = self._init_audit_writer(audit_path)
+        bus_config = BusConfig()
+        self._bus = Bus(cfg=bus_config, audit=self._audit)
         self._bus.set_audit(self._audit)
 
         # Order Validation

@@ -3,9 +3,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from backtester.config.configs import BacktestConfig, RunContext
+from backtester.config.configs import BacktestConfig, BusConfig, RunContext, SubscriptionConfig
 from backtester.core.audit import AuditWriter
-from backtester.core.bus import Bus, Subscription, SubscriptionConfig, TopicPriority
+from backtester.core.bus import Bus, Subscription, TopicPriority
 from backtester.core.clock import Clock
 from backtester.core.topics import (
     T_ACCOUNT_SNAPSHOT,
@@ -144,10 +144,11 @@ class BacktestEngine:
         self._initialize()
 
     def _initialize(self) -> None:
-        self._bus = Bus()
         self._audit = AuditWriter(self._run_ctx, self._cfg.audit_cfg)
+        bus_cfg = BusConfig()
+        self._bus = Bus(cfg=bus_cfg, audit=self._audit)
         self._bus.set_audit(self._audit)
-        self._services: list[BacktestService] = [StrategyRunner(self._clock, self._audit)]
+        self._services = [StrategyRunner(self._clock, self._audit)]
 
     # --- BUS SECTION --- (Topic Management)
 

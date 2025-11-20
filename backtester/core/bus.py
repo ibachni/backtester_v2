@@ -460,7 +460,6 @@ class Bus:
         self._on_error: list[Callable[[str, BaseException], None]] = []
         # (topic, sub_name, env, reason)
         self._on_drop: list[Callable[[str, str, Envelope | None, str], None]] = []
-        self._audit: Optional[AuditWriter] = audit
         self._no_sub_once: set[str] = set()
 
     # --- helpers ---
@@ -545,7 +544,7 @@ class Bus:
         """
         self._on_drop.append(callback)
 
-    async def wait_until_idle(self):
+    async def wait_until_idle(self) -> None:
         """
         Barrier. Blocks until ALL items in ALL queues have been processed.
         """
