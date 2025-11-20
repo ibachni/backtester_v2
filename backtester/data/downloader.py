@@ -1227,7 +1227,7 @@ class WritingParquet:
             / f"exchange={raw.exchange}"
             / f"market={raw.market}"
             / f"symbol={raw.symbol}"
-            / f"timeframe={"EOHSummary"}"
+            / "timeframe=EOHSummary"
             / f"year={anchor:04d}"
         )
 
