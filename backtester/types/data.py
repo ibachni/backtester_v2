@@ -8,7 +8,7 @@ from typing import BinaryIO, Literal, Optional
 
 import polars as pl
 
-from backtester.types.types import UnixMillis
+from backtester.types.aliases import UnixMillis
 
 # --- backtester.data.downloader ----
 

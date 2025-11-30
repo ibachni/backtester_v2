@@ -14,11 +14,11 @@ from typing import Any, BinaryIO, Literal, Optional
 import polars as pl
 import requests
 
+from backtester.audit.audit import AuditWriter
 from backtester.config.configs import AuditConfig, DownloaderConfig, RunContext
-from backtester.core.audit import AuditWriter
-from backtester.core.utility import month_range, target_path
 from backtester.errors.errors import EmptyArchiveError
 from backtester.types.data import ParsingReport, RawBytes, SanitizedBatch, SchemaSpec, WriteReport
+from backtester.utils.utility import month_range, target_path
 
 # ------------------------- Orchestration ------------------------------
 
@@ -208,7 +208,6 @@ class DownloaderFiles:
                 component="ingest",
                 event=event,
                 level=level,
-                simple=simple,
                 payload={"run_id": self._run_id, **({} if payload is None else payload)},
             )
 
@@ -984,6 +983,9 @@ class ParsingSanitizing:
                 for name in csv_names:
                     with archive.open(name) as member:
                         payload = member.read()
+                        if payload.__sizeof__() > 500_000_000:
+                            print(f"File too large: {name}")
+                            continue
                     members.append((name, payload))
                     self._emit(
                         "PARSE_MEMBER",
@@ -992,6 +994,7 @@ class ParsingSanitizing:
                         bytes=len(payload),
                         members=len(members),
                     )
+                    print(f"Size of members: {members.__sizeof__()}")
         return members
 
     def _emit(self, event: str, raw: RawBytes, *, level: str = "INFO", **payload: Any) -> None:
@@ -1001,7 +1004,6 @@ class ParsingSanitizing:
             component="parsing",
             event=event,
             level=level,
-            simple=True,
             payload={
                 "run_id": raw.run_id,
                 "symbol": raw.symbol,
@@ -1461,7 +1463,6 @@ class WritingParquet:
             component="writer",
             event=event,
             level=level,
-            simple=True,
             payload=base_payload,
             symbol=symbol,
         )

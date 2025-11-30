@@ -7,7 +7,7 @@ from typing import Iterable, Literal, Optional, overload
 
 import polars as pl
 
-from backtester.core.utility import month_range
+from backtester.utils.utility import month_range
 
 
 @overload

@@ -9,15 +9,15 @@ from decimal import ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from types import MappingProxyType
 from typing import Any, Mapping, Optional, Sequence, Union
 
-from backtester.core.ctx import Context
+from backtester.config.configs import StrategyInfo
+from backtester.types.aliases import Timeframe
 from backtester.types.types import (
     ZERO,
     Candle,
     Fill,
+    OrderAck,
     OrderIntent,
-    StrategyInfo,
     SymbolSpec,
-    Timeframe,
     _StrategyState,
 )
 
@@ -128,6 +128,9 @@ class Strategy(ABC):
 
         """
 
+    def on_reject(self, ack: OrderAck) -> None:
+        """When: After an Order has been rejected."""
+
     def on_timer(
         self,
         # ctx: Context,
@@ -167,29 +170,6 @@ class Strategy(ABC):
             # etc.
         }
 
-    # --- parameter validation hook (optional to override) --
-
-    def log_event(self, ctx: Context, level: str, msg: str, **fields: Any) -> None:
-        base = {
-            "strategy": self.info.name,
-            "version": self.info.version,
-            "run_id": ctx.run_id,
-            "params_hash": self.params_hash,
-            "mode": self._mode or "unknown",
-        }
-
-        base.update(fields)
-        line = msg + " " + " ".join(f"{k}={v}" for k, v in base.items())
-        lvl = (level or "info").lower()
-        if lvl == "debug":
-            ctx.log.debug(line)
-        elif lvl == "warning" or lvl == "warn":
-            ctx.log.warning(line)
-        elif lvl == "error":
-            ctx.log.error(line)
-        else:
-            ctx.log.info(line)
-
     # --- Internals ----
 
     @staticmethod
@@ -204,7 +184,7 @@ class Strategy(ABC):
         h = hashlib.sha1(blob).hexdigest()
         return h[:10]
 
-    # --- Helpers --- ha
+    # --- Helpers ---
 
     def dec(self, x: Union[str, int, float]) -> Decimal:
         return x if isinstance(x, Decimal) else Decimal(str(x))
@@ -221,7 +201,7 @@ class Strategy(ABC):
     ) -> Decimal:
         if not spec or not getattr(spec, "tick_size", None):
             return price
-        tick = self.dec(spec.tick_size)
+        tick = spec.tick_size
         return self._to_step(price, tick, rounding=rounding)
 
     def quantize_qty(
@@ -229,7 +209,7 @@ class Strategy(ABC):
     ) -> Decimal:
         if not spec or not getattr(spec, "lot_size", None):
             return qty
-        lot = self.dec(spec.lot_size)
+        lot = spec.lot_size
         sign = 1 if qty >= ZERO else -1
         q_abs = self._to_step(
             abs(qty), lot, rounding=ROUND_FLOOR if rounding == ROUND_FLOOR else ROUND_DOWN
@@ -239,5 +219,5 @@ class Strategy(ABC):
     def meets_min_notional(self, spec: Optional[SymbolSpec], qty: Decimal, price: Decimal) -> bool:
         if not spec or not getattr(spec, "min_notional", None):
             return True
-        mn = self.dec(spec.min_notional)
+        mn = spec.min_notional
         return (abs(qty) * price) >= mn

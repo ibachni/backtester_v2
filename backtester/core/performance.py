@@ -31,11 +31,11 @@ Working:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from decimal import Decimal
 from math import isfinite, log, sqrt
 from typing import Optional, Tuple
 
+from backtester.config.configs import PerformanceConfig
 from backtester.core.clock import parse_timeframe
 from backtester.types.types import (
     ZERO,
@@ -102,6 +102,9 @@ def positionview_to_float(
 # --- Metrics Classes ---
 
 
+EPS = 1e-9
+
+
 class Sampler:
     """
     Problem:
@@ -129,10 +132,12 @@ class Sampler:
         self._next_emit_ts: Optional[int] = None
         # Latest seen bar and snapshot
         self._last_bar: Optional[Candle] = None
-        self._last_snapshot: Optional[FloatPortfolioSnapshot] = None
+        self._last_snapshot: Optional[PortfolioSnapshot] = None
+        self._last_snapshot_float: Optional[FloatPortfolioSnapshot] = None
 
-        # Emission tracking: emit_ts -> version count (avoid duplicates)
-        self._emitted_version: dict[int, int] = {}
+        # Track previous snapshot for gap filling (anti-lookahead)
+        self._prev_snapshot: Optional[PortfolioSnapshot] = None
+        self._prev_snapshot_float: Optional[FloatPortfolioSnapshot] = None
 
         # Alignment tolerance (ms)
         self._tolerance_ms: int = 50
@@ -143,57 +148,77 @@ class Sampler:
         """
         self._last_bar = bar
         if self._next_emit_ts is None:
-            # Start emitting from the first bar boundary + metrics step
-            self._next_emit_ts = bar.end_ms + self.metrics_mseconds
+            # Fix: Start emitting from the first bar
+            self._next_emit_ts = bar.end_ms
 
     def on_snapshot(self, snap: PortfolioSnapshot) -> None:
         """
-        Record the latest snapshot. This does not emit by itself.
+        Cache the latest snapshot; conversion to float is deferred until emit time.
         """
-        fsnap = snapshot_to_float(snap=snap)
-        self._last_snapshot = fsnap
+        # Rotate snapshots to keep history for gap filling
+        if self._last_snapshot is not None:
+            self._prev_snapshot = self._last_snapshot
+            self._prev_snapshot_float = self._last_snapshot_float
+        else:
+            # First snapshot ever
+            self._prev_snapshot = snap
+            self._prev_snapshot_float = None
 
-    def snapshot_update(
-        self, snap: PortfolioSnapshot
-    ) -> Optional[Tuple[Candle, FloatPortfolioSnapshot]]:
+        self._last_snapshot = snap
+        self._last_snapshot_float = None
+
+    def snapshot_update(self, snap: PortfolioSnapshot) -> list[Tuple[int, FloatPortfolioSnapshot]]:
         """
-        Optionally returns a (bar, snapshot) pair when the snapshot reaches or
-        passes the next emit timestamp and the latest bar aligns within tolerance.
+        Returns zero or more (emit_ts, snapshot) pairs when the snapshot reaches or
+        passes one or multiple emit timestamps and the latest bar aligns within tolerance.
+        Emits are gap-filled in fixed steps using the latest known snapshot.
         """
         # Update latest snapshot first
         self.on_snapshot(snap)
 
         if self._next_emit_ts is None:
             # Need at least one bar to set the schedule
-            return None
+            return []
         if self._last_snapshot is None or self._last_bar is None:
-            return None
+            return []
 
-        emit_ts = self._next_emit_ts
+        emissions: list[Tuple[int, FloatPortfolioSnapshot]] = []
 
-        # Not yet time to emit
-        if self._last_snapshot.ts < emit_ts - self._tolerance_ms:
-            return None
-
-        # Align bar and snapshot within tolerance
-        bar_ts = self._last_bar.end_ms
-        snap_ts = self._last_snapshot.ts
-        if bar_ts < snap_ts - self._tolerance_ms or bar_ts > snap_ts + self._tolerance_ms:
-            pass
-            # raise ValueError("Performance Sampler: Snapshot and bar misaligned")
-
-        # Avoid duplicate emission for the same emit_ts
-        if self._emitted_version.get(emit_ts, 0) > 0:
-            return None
-
-        pair = (self._last_bar, self._last_snapshot)
-
-        # Mark emitted and roll schedule forward in fixed steps
-        self._emitted_version[emit_ts] = 1
-        while self._next_emit_ts is not None and self._next_emit_ts <= snap_ts:
+        # 1. Gap Filling: If we missed emit times between prev and current, fill with PREV state
+        # This prevents look-ahead bias (using current state for past timestamps).
+        while self._next_emit_ts < snap.ts - self._tolerance_ms:
+            fsnap_prev = self._float_snapshot(use_prev=True)
+            if fsnap_prev:
+                emissions.append((self._next_emit_ts, fsnap_prev))
             self._next_emit_ts += self.metrics_mseconds
 
-        return pair
+        # 2. Current Emission: If current snapshot aligns with next emit time
+        emit_ts = self._next_emit_ts
+
+        # Check alignment with tolerance
+        if abs(snap.ts - emit_ts) <= self._tolerance_ms:
+            # Ensure bar is also aligned (data integrity check)
+            if abs(self._last_bar.end_ms - emit_ts) <= self._tolerance_ms:
+                fsnap = self._float_snapshot(use_prev=False)
+                if fsnap:
+                    emissions.append((emit_ts, fsnap))
+                    self._next_emit_ts += self.metrics_mseconds
+
+        return emissions
+
+    def _float_snapshot(self, use_prev: bool = False) -> Optional[FloatPortfolioSnapshot]:
+        snap = self._prev_snapshot if use_prev else self._last_snapshot
+        cached = self._prev_snapshot_float if use_prev else self._last_snapshot_float
+
+        if snap is None:
+            return None
+        if cached is None:
+            cached = snapshot_to_float(snap=snap)
+            if use_prev:
+                self._prev_snapshot_float = cached
+            else:
+                self._last_snapshot_float = cached
+        return cached
 
 
 # --- Metric calculators ---
@@ -215,19 +240,20 @@ class ReturnCalculator:
         """
 
         # First observation or invalid baselines → set baseline and skip emitting a return
+        # Use EPS for zero checks to avoid float issues
         if (
             self.prev_equity is None
             or not isfinite(equity)
-            or equity <= 0.0
-            or self.prev_equity <= 0.0
+            or equity <= EPS
+            or self.prev_equity <= EPS
         ):
             self.prev_equity = equity
             return
 
         if self.kind == "log":
-            r = log(max(1e-12, equity) / max(1e-12, self.prev_equity))
+            r = log(max(EPS, equity) / max(EPS, self.prev_equity))
         else:
-            r = (equity - self.prev_equity) / max(1e-12, self.prev_equity)
+            r = (equity - self.prev_equity) / max(EPS, self.prev_equity)
         self.series.append((ts, r))
         self.prev_equity = equity
 
@@ -315,8 +341,9 @@ class ExposureTracker:
     def update(self, ts: int, equity: float, positions: tuple[FloatPositionView, ...]) -> None:
         gross_val, net_val = self._sum_values(positions)
         # total leverage (notional per unit equity)
-        gross = 0.0 if equity == 0 else gross_val / equity
-        net = 0.0 if equity == 0 else net_val / equity
+        is_zero = abs(equity) < EPS
+        gross = 0.0 if is_zero else gross_val / equity
+        net = 0.0 if is_zero else net_val / equity
         delta = self._delta_exposure(positions)
         self.series.append((ts, gross, net, delta))
 
@@ -393,7 +420,8 @@ class TradeStats:
         if pnl > ZERO:
             self.wins += 1
             self._gross_profit += pnl
-        elif pnl < ZERO:
+        # Count trades with zero PnL as loss, since time value of money
+        elif pnl <= ZERO:
             self.losses += 1
             self._gross_loss += -pnl
 
@@ -437,34 +465,18 @@ class TradeStats:
         }
 
 
-# --- Configuration ---
-
-
-@dataclass
-class MetricsConfig:
-    trading_interval: str
-    metrics_interval: Optional[str] = None
-    base_ccy: str = "USDC"
-    returns_kind: str = "log"  # "log" | "simple"
-    risk_free: float = 0.0
-
-    def __post_init__(self) -> None:
-        if self.metrics_interval is None:
-            self.metrics_interval = self.trading_interval
-
-
 # --- Orchestration ---
 
 
-class MetricsEngine:
-    def __init__(self, cfg: MetricsConfig = MetricsConfig("5min")) -> None:
+class PerformanceEngine:
+    def __init__(self, cfg: PerformanceConfig = PerformanceConfig("5min")) -> None:
         self.cfg = cfg
         metrics_interval = cfg.metrics_interval or cfg.trading_interval
         self.sampler = Sampler(
             trading_interval=cfg.trading_interval, metrics_interval=metrics_interval
         )
         self.returns = ReturnCalculator(cfg.returns_kind)
-        self.risk = RiskStats(self.sampler.trading_mseconds, cfg.risk_free)
+        self.risk = RiskStats(self.sampler.metrics_mseconds, cfg.risk_free)
         self.dd = DrawdownTracker()
         self.expo = ExposureTracker()
         self.pnl = PnLTracker()
@@ -481,9 +493,9 @@ class MetricsEngine:
 
     def on_snapshot(self, snap: PortfolioSnapshot) -> None:
         emissions = self.sampler.snapshot_update(snap)
-        if emissions is not None:
-            self._emit_bars(emissions[0].end_ms, emissions[1])
-            self.equity_curve.append((snap.ts, emissions[1].equity))
+        for emit_ts, fsnap in emissions:
+            self._emit_bars(emit_ts, fsnap)
+            self.equity_curve.append((emit_ts, fsnap.equity))
 
     def on_trade(self, tr: TradeEvent, account_equity: Optional[float] = None) -> None:
         self.tradestats.update(tr, account_equity)
@@ -513,7 +525,7 @@ class MetricsEngine:
         eq0 = self.equity_curve[0][1] if self.equity_curve else 0.0
         eqT = self.equity_curve[-1][1] if self.equity_curve else 0.0
         n_periods = max(1, len(self.returns.series))
-        ann_factor = _annualization_factor(self.sampler.trading_mseconds)
+        ann_factor = _annualization_factor(self.sampler.metrics_mseconds)
 
         cagr = 0.0
         if eq0 > 0 and eqT > 0:

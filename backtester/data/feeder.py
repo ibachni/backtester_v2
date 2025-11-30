@@ -2,14 +2,17 @@ from __future__ import annotations
 
 import heapq
 from dataclasses import dataclass, field
-from typing import Any, Iterator, Optional
+from typing import Any, AsyncIterator, Optional
 
 from backtester.config.configs import DataSubscriptionConfig, FeederConfig
-from backtester.core.audit import AuditWriter
-from backtester.core.clock import Millis, SimClock
+from backtester.core.bus import Bus
+from backtester.core.clock import SimClock
+from backtester.data.resampler import ResampleIter
 from backtester.data.source import CandleSource
 from backtester.errors.errors import FeedError
-from backtester.types.types import Candle, UnixMillis
+from backtester.types.aliases import UnixMillis
+from backtester.types.topics import T_LOG
+from backtester.types.types import Candle, LogEvent
 
 """
 - Bar feed and resampleiter runs in pure python
@@ -26,120 +29,33 @@ Post MVP: Gap detection
 # --- BarFeeder ---
 
 
-@dataclass(slots=True)
-class DataSubscription:
-    sub_config: DataSubscriptionConfig
-    source: CandleSource
-    it: Iterator = field(init=False)
-    sha: str = field(init=False)
-    next_candle: Optional[Candle] = None
-    next_close: Optional[int] = None  # ts + tf_ms
-    bars_emitted: int = 0
-    missing_frames: int = 0  # incremented only for align="outer"
-
-    def __post_init__(self) -> None:
-        self.it = iter(self.source)
-        self.sha = self.sub_config.sha_256
-
-        # do not do this
-        # If input TF != target TF, wrap with resampler so BarFeed sees target TF stream
-        if self.sub_config.timeframe != self.sub_config.timeframe_data:
-            self.it = iter(
-                _ResampleIter(
-                    it=self.it,
-                    symbol=self.sub_config.symbol,
-                    timeframe_out=self.sub_config.timeframe,
-                    tf_ms_out=self.sub_config.tf_ms,
-                )
-            )
-
-
 CandleFrame = dict[str, Optional[Candle]]
 
 
 @dataclass(slots=True)
-class _ResampleIter:
-    """
-    Wrap a lower-tf candle Iterator (e.g., "1 min") and emit higher timeframe aggregated candles
-    (e.g., 5 min); BarFeed is not touched.
-    """
+class DataSubscription:
+    sub_config: DataSubscriptionConfig
+    source: CandleSource
+    it: AsyncIterator = field(init=False)
+    sha: str = field(init=False)
+    next_candle: Optional[Candle] = None
+    next_close: Optional[int] = None  # ts + tf_ms
+    last_candle: Optional[Candle] = None  # <--- ADD THIS FIELD
+    bars_emitted: int = 0
+    missing_frames: int = 0  # incremented only for align="outer"
 
-    it: Iterator[Candle]
-    symbol: str
-    timeframe_out: str
-    tf_ms_out: Millis
-    _carry: Optional[Candle] = None
-    _done: bool = False
+    def __post_init__(self) -> None:
+        self.it = self.source.__aiter__()
+        self.sha = self.sub_config.sha_256
 
-    def __iter__(self) -> Iterator[Candle]:
-        return self
-
-    def __next__(self) -> Candle:
-        if self._done:
-            raise StopIteration
-
-        # Seed the bucket with the first candle (from carry or upstream)
-        c = self._carry if self._carry is not None else next(self.it)
-        self._carry = None
-
-        # Calculate the starting point of the bucket
-        bucket_start = (c.start_ms // self.tf_ms_out) * self.tf_ms_out
-        # Calculate the end point of the bucket
-        bucket_end = bucket_start + self.tf_ms_out
-
-        o = c.open
-        h = c.high
-        low_ = c.low
-        v = c.volume
-        trades = c.trades or 0
-        last_close = c.close
-
-        all_final = True if c.is_final is None else bool(c.is_final)
-
-        while True:
-            try:
-                n = next(self.it)
-            except StopIteration:
-                self._done = True
-                return Candle(
-                    symbol=self.symbol,
-                    timeframe=self.timeframe_out,
-                    start_ms=bucket_start,
-                    end_ms=bucket_end,
-                    open=o,
-                    high=h,
-                    low=low_,
-                    close=last_close,
-                    volume=v,
-                    trades=trades,
-                    is_final=all_final,
-                )
-
-            if n.start_ms < bucket_end:
-                # Same bucket
-                h = max(h, n.high)
-                low_ = min(low_, n.low)
-                v += n.volume
-                trades += n.trades or 0
-                last_close = n.close
-                if n.is_final is False:
-                    all_final = False
-            else:
-                # Next bucket begins with n
-                self._carry = n
-                return Candle(
-                    symbol=self.symbol,
-                    timeframe=self.timeframe_out,
-                    start_ms=bucket_start,
-                    end_ms=bucket_end,
-                    open=o,
-                    high=h,
-                    low=low_,
-                    close=last_close,
-                    volume=v,
-                    trades=trades,
-                    is_final=all_final,
-                )
+        # If input TF != target TF, wrap with resampler so BarFeed sees target TF stream
+        if self.sub_config.timeframe != self.sub_config.timeframe_data:
+            self.it = ResampleIter(
+                it=self.it,
+                symbol=self.sub_config.symbol,
+                timeframe_out=self.sub_config.timeframe,
+                tf_ms_out=self.sub_config.tf_ms,
+            ).__aiter__()
 
 
 class BarFeed:
@@ -154,10 +70,10 @@ class BarFeed:
     Important: Topics Management!
     """
 
-    def __init__(self, feeder_cfg: FeederConfig, clock: SimClock, audit: AuditWriter) -> None:
+    def __init__(self, feeder_cfg: FeederConfig, clock: SimClock, bus: Bus) -> None:
         self._feeder_cfg = feeder_cfg
         self._clock = clock
-        self._audit = audit
+        self._bus = bus
         self._align = feeder_cfg.align
 
         # Subscription list
@@ -165,6 +81,7 @@ class BarFeed:
         self._heap: list[tuple[int, int]] = []
         # uniqueness guard
         self._sub_keys: set[str] = set()
+
         self._initialized = False
         self._running = False
 
@@ -174,50 +91,57 @@ class BarFeed:
         self._last_close: Optional[int] = None
         self._missing_once: set[str] = set()
 
-    def _emit_audit(
+    async def _emit_log(
         self,
-        event: str,
-        *,
-        component: str = "data.feed",
-        level: str = "INFO",
-        simple: bool = True,
-        sim_time: Optional[int] = None,
+        level: str,
+        msg: str,
         payload: Optional[dict[str, Any]] = None,
     ) -> None:
-        if self._audit is None:
+        """Emit a log event to the bus using the LogEvent pattern."""
+        if not hasattr(self, "_bus") or self._bus is None:
             return
-        self._audit.emit(
-            component=component,
-            event=event,
-            level=level,
-            simple=simple,
-            sim_time=sim_time,
-            payload=payload or {},
-        )
 
-    def start(self) -> None:
+        log_event = LogEvent(
+            level=level,
+            component="BarFeed",
+            msg=msg,
+            payload=payload or {},
+            sim_time=self._clock.now(),
+        )
+        await self._bus.publish(topic=T_LOG, ts_utc=self._clock.now(), payload=log_event)
+
+    async def start(self) -> None:
         self._running = True
-        self._emit_audit(
-            "FEED_STATE",
-            simple=True,
+        await self._emit_log(
+            level="INFO",
+            msg="Feed started",
             payload={
+                "event": "FEED_STATE",
                 "state": "started",
                 "subscriptions": len(self._subs),
                 "align": self._align,
             },
         )
 
-    def stop(self) -> None:
+    async def stop(self) -> None:
         self._running = False
-        self._emit_audit(
-            "FEED_STATE",
-            simple=True,
+        await self._emit_log(
+            level="INFO",
+            msg="Feed stopped",
             payload={
+                "event": "FEED_STATE",
                 "state": "stopped",
                 "frames_emitted": self._frame_emitted,
                 "last_close": self._last_close,
             },
         )
+
+    def get_stats(self) -> dict[str, dict[str, Any]]:
+        stats_by_source = {}
+        for sub in self._subs:
+            stats_by_source[sub.sub_config.symbol] = sub.source.stats()
+
+        return stats_by_source
 
     # --- Public API ---
 
@@ -235,6 +159,7 @@ class BarFeed:
         self._subs.append(sub)
         self._sub_keys.add(key)
         self._initialized = False
+
         cfg = sub.sub_config
         meta_paths: Optional[list[str]] = None
         try:
@@ -254,17 +179,20 @@ class BarFeed:
         }
         if meta_paths:
             payload["paths_sample"] = meta_paths
-        self._emit_audit("FEED_SUBSCRIBED", simple=True, payload=payload)
+        payload["event"] = "FEED_SUBSCRIBED"
 
-    def iter_frames(self) -> Iterator[tuple[UnixMillis, CandleFrame]]:
+    async def iter_frames(self) -> AsyncIterator[tuple[UnixMillis, CandleFrame]]:
         """
         Merge all subscribes sources into aligned frames
         Yields (t_close, frame) with t_close in ascending order.
         Advances SimClock to t_close before yielding.
         """
+        if not self._running:
+            raise FeedError("BarFeed not started. Call start() first.")
+
         if not self._subs:
             raise FeedError("No subscriptions registered")
-        self._prime_heap()
+        await self._prime_heap()
 
         # main merge loop:
         drained = False
@@ -281,10 +209,11 @@ class BarFeed:
                     sub = self._subs[idx]
                     if sub.next_candle is not None:
                         sub.bars_emitted += 1
+                        sub.last_candle = sub.next_candle
                         contributors[idx] = sub.next_candle
 
                     # advance that sub to its next candle
-                    self._advance_sub(idx)
+                    await self._advance_sub(idx)
 
                 if self._align == "inner":
                     # TODO: Implement inner join (intersection of all sources)
@@ -296,20 +225,38 @@ class BarFeed:
                     for i, sub in enumerate(self._subs):
                         c = contributors.get(i)
                         symbol = sub.sub_config.symbol
-                        if c is None:
+                        if c is not None:
+                            frame[symbol] = c
+                        elif sub.last_candle is not None:
+                            last_close = sub.last_candle.close
+                            tf_ms = sub.sub_config.tf_ms
+                            # create a synthetic 0 volume candle at the previous close price
+                            synthetic = Candle(
+                                symbol=symbol,
+                                timeframe=sub.sub_config.timeframe,
+                                start_ms=t_min - tf_ms,
+                                end_ms=t_min,
+                                open=last_close,
+                                high=last_close,
+                                low=last_close,
+                                close=last_close,
+                                volume=0.0,
+                                trades=0,
+                                is_final=True,
+                            )
+                            frame[symbol] = synthetic
+
+                        else:
+                            # Gap at start of stream (no previous data available)
                             frame[symbol] = None
                             missing_symbols.append(symbol)
-                        else:
-                            frame[symbol] = c
 
-                # Advance the SimClock to the frame's close time before yielding
                 if t_min < self._clock.now():
                     msg = {
                         "Non-monotonic t_close form heap",
                         f"{t_min} < clock.now()={self._clock.now()}",
                     }
                     raise FeedError(msg)
-                self._clock.advance_to(t_min)
                 if self._first_close is None:
                     self._first_close = t_min
                 self._last_close = t_min
@@ -318,12 +265,11 @@ class BarFeed:
                     for sym in missing_symbols:
                         if sym not in self._missing_once:
                             self._missing_once.add(sym)
-                            self._emit_audit(
-                                "FEED_MISSING_SYMBOL",
+                            await self._emit_log(
                                 level="WARN",
-                                sim_time=t_min,
-                                simple=True,
+                                msg="Symbol missing from frame",
                                 payload={
+                                    "event": "FEED_MISSING_SYMBOL",
                                     "symbol": sym,
                                     "frame_close": t_min,
                                     "frames_emitted": self._frame_emitted,
@@ -332,10 +278,11 @@ class BarFeed:
                 yield t_min, frame
             drained = True
         finally:
-            self._emit_audit(
-                "FEED_ITERATION_END",
-                simple=True,
+            await self._emit_log(
+                level="INFO",
+                msg="Feed iteration ended",
                 payload={
+                    "event": "FEED_ITERATION_END",
                     "drained": drained,
                     "frames_emitted": self._frame_emitted,
                     "first_close": self._first_close,
@@ -348,35 +295,38 @@ class BarFeed:
 
     # --- helpers ---
 
-    def _prime_heap(self) -> None:
+    async def _prime_heap(self) -> None:
         """Initialize or refresh the heap with each subscription's first bar."""
         if self._initialized:
             return
         self._heap.clear()
         for idx, _ in enumerate(self._subs):
-            self._pull_first(idx)
+            await self._pull_first(idx)
         # push available subs
         for idx, sub in enumerate(self._subs):
             if sub.next_close is not None:
                 heapq.heappush(self._heap, (sub.next_close, idx))
         self._initialized = True
 
-    def _pull_first(self, idx: int) -> None:
+    async def _pull_first(self, idx: int) -> None:
         """
         Fast-forward a subscription to the first candle whose close time
         is >= the subscription start_ms, and set next_candle/next_close.
         """
         sub = self._subs[idx]
         try:
-            c = next(sub.it)
-        except StopIteration:
+            c = await anext(sub.it)
+        except StopAsyncIteration:
             sub.next_candle = None
             sub.next_close = None
-            self._emit_audit(
-                "FEED_SOURCE_EMPTY",
-                simple=True,
+            await self._emit_log(
                 level="WARN",
-                payload={"symbol": sub.sub_config.symbol, "timeframe": sub.sub_config.timeframe},
+                msg="Source is empty",
+                payload={
+                    "event": "FEED_SOURCE_EMPTY",
+                    "symbol": sub.sub_config.symbol,
+                    "timeframe": sub.sub_config.timeframe,
+                },
             )
             return
 
@@ -384,15 +334,15 @@ class BarFeed:
         while c.end_ms < sub.sub_config.start_ms:
             skipped += 1
             try:
-                c = next(sub.it)
-            except StopIteration:
+                c = await anext(sub.it)
+            except StopAsyncIteration:
                 sub.next_candle = None
                 sub.next_close = None
-                self._emit_audit(
-                    "FEED_SOURCE_UNDERRUN",
+                await self._emit_log(
                     level="WARN",
-                    simple=True,
+                    msg="Source underrun during skip",
                     payload={
+                        "event": "FEED_SOURCE_UNDERRUN",
                         "symbol": sub.sub_config.symbol,
                         "timeframe": sub.sub_config.timeframe,
                         "skipped": skipped,
@@ -400,36 +350,27 @@ class BarFeed:
                 )
                 return
         sub.missing_frames += skipped
-        if skipped > 0:
-            self._emit_audit(
-                "FEED_SKIP_LEADING",
-                level="DEBUG",
-                simple=True,
-                payload={
-                    "symbol": sub.sub_config.symbol,
-                    "timeframe": sub.sub_config.timeframe,
-                    "skipped": skipped,
-                },
-            )
+        # Skip leading bars silently (tracked in sub.missing_frames)
 
         # Schedule on the candle's close time
         next_close = c.end_ms
         sub.next_candle = c
         sub.next_close = next_close
 
-    def _advance_sub(self, idx: int) -> None:
+    async def _advance_sub(self, idx: int) -> None:
         """Advance a subscription to its next candle and (re)insert into the heap if available."""
         sub = self._subs[idx]
         prev_close = sub.next_close
         try:
-            c = next(sub.it)
-        except StopIteration:
+            c = await anext(sub.it)
+        except StopAsyncIteration:
             sub.next_candle = None
             sub.next_close = None
-            self._emit_audit(
-                "FEED_SOURCE_EXHAUSTED",
-                simple=True,
+            await self._emit_log(
+                level="INFO",
+                msg="Source exhausted",
                 payload={
+                    "event": "FEED_SOURCE_EXHAUSTED",
                     "symbol": sub.sub_config.symbol,
                     "timeframe": sub.sub_config.timeframe,
                     "last_close": prev_close,
@@ -440,7 +381,6 @@ class BarFeed:
 
         # schedule on the candle's close time.
         next_close = c.end_ms
-        # TODO How to manage data inconsistencies
         if prev_close is not None and next_close < prev_close:
             raise FeedError(
                 f"Non-monotonic source for {sub.sub_config.symbol}@{sub.sub_config.timeframe}: "

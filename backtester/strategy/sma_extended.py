@@ -5,23 +5,25 @@ from dataclasses import dataclass, fields
 from decimal import Decimal
 from typing import Any, Deque, Dict, Iterator, List, Mapping, Optional
 
+from backtester.config.configs import StrategyInfo
 from backtester.core.clock import Clock
+from backtester.core.ctx import Context
 from backtester.strategy.base import Strategy
 from backtester.types.types import (
     Candle,
     Fill,
     Market,
     MarketOrderIntent,
+    OrderAck,
     OrderIntent,
     Side,
-    StrategyInfo,
 )
 
 
 @dataclass(frozen=True)
 class SMAExtendedParams:
     symbols: tuple[str, ...] = ("BTCUSDT", "ETHUSDT")
-    timeframe: str | None = None
+    timeframe: str = "1h"
     fast: int = 10
     slow: int = 40
     qty: Decimal = Decimal("0.01")
@@ -49,17 +51,19 @@ class SMAExtendedParams:
 class SMAExtendedStrategy(Strategy):
     def __init__(
         self,
+        ctx: Context,
         clock: Clock,
         params: Mapping[str, Any],
         *,
         info: Optional[StrategyInfo] = None,
     ) -> None:
         super().__init__(params, info=info or StrategyInfo(name="sma_extended"))
+        self._ctx = ctx
         self._clock = clock
 
         self._p = SMAExtendedParams(
             symbols=tuple(self.params.get("symbols", ("BTCUSDT", "ETHUSDT"))),
-            timeframe=self.params.get("timeframe"),
+            timeframe=self.params.get("timeframe", "1h"),
             fast=int(self.params.get("fast", 10)),
             slow=int(self.params.get("slow", 40)),
             qty=Decimal(str(self.params.get("qty", "0.01"))),
@@ -73,9 +77,12 @@ class SMAExtendedStrategy(Strategy):
         )
         if not (0 < self._p.fast < self._p.slow):
             raise ValueError("Require 0 < fast < slow")
+        if self._p.qty <= 0:
+            raise ValueError("qty must be positive")
 
         self._price_win: Dict[str, Deque[float]] = {}  # deque of recent closes for SMA calc
-        self._pos: Dict[str, bool] = {}  # bool
+        self._sums: Dict[str, Dict[str, float]] = {}
+        self._pos: Dict[str, bool] = {}
         self._pending: Dict[
             str, Optional[str]
         ] = {}  # pending signal (to prevent duplicate submits)
@@ -85,7 +92,14 @@ class SMAExtendedStrategy(Strategy):
         self._last_signal_ts: Dict[str, Optional[int]] = {}
         self._daily_pnl: float = 0.0  # dailing PnL gating
         self._current_day: Optional[int] = None  # dailing PnL gating
-        self._seq = 0  # Local sequence counter used to construct readable intent IDs
+        self._seq: int = 0  # Local sequence counter used to construct readable intent IDs
+        self._trading_days: int = 0  # counter of trading days
+        self._stats_tracker = {
+            "pnl_strategy": 0.0,
+            "signals_generated": 0,
+            "signals_rejected": 0,
+            "positions_held": 0,
+        }
 
     # --- metadata hooks ---
 
@@ -121,7 +135,9 @@ class SMAExtendedStrategy(Strategy):
         cooldown_left = self._cooldown[sym]
         slots_used = sum(self._pos.values())
         can_reenter = (
-            self._p.allow_reentry and cooldown_left == 0 or not in_pos and cooldown_left == 0
+            not in_pos
+            and cooldown_left == 0
+            and (self._p.allow_reentry or not bool(self._pending[sym]))
         )
         risk_block = self._daily_pnl <= -self._p.daily_loss_limit
 
@@ -147,6 +163,7 @@ class SMAExtendedStrategy(Strategy):
 
         if side:
             intent = self._mk_market_intent(sym, side, str(reason))
+            self._stats_tracker["signals_generated"] += 1
             intents.append(intent)
             self._pending[sym] = side
 
@@ -163,26 +180,38 @@ class SMAExtendedStrategy(Strategy):
             self._pos[sym] = True
             self._entry_px[sym] = float(fill.price)
             self._trail[sym] = float(fill.price) * (1 - self._p.trail_pct)
+            self._stats_tracker["positions_held"] += 1
         else:
+            if sym in self._entry_px:
+                entry = self._entry_px[sym]
+                pnl = float(fill.qty) * (float(fill.price) - entry)
+                self._daily_pnl += pnl
+
             self._pos[sym] = False
             self._cooldown[sym] = self._p.cooldown_bars
             self._entry_px.pop(sym, None)
             self._trail.pop(sym, None)
         return []
 
+    def on_reject(self, ack: OrderAck) -> None:
+        self._stats_tracker["signals_rejected"] += 1
+        self._pending[ack.symbol] = None
+
     # --- helpers ---
 
     def _mk_market_intent(self, symbol: str, side: str, reason: str) -> OrderIntent:
         self._seq += 1
         side_enum = Side.BUY if side == "buy" else Side.SELL
+        intent_id = f"{self.info.name}-{symbol}-{self._clock.now()}-{self._seq}"
+        qty = self.quantize_qty(spec=self._ctx.specs.require(symbol), qty=self._p.qty)
         return MarketOrderIntent(
             symbol=symbol,
             market=Market.SPOT,
             side=side_enum,
-            id=f"{self.info.name}-{symbol}-{self._seq}",
+            id=intent_id,
             ts_utc=self._clock.now(),
             strategy_id=self.info.name,
-            qty=self._p.qty,
+            qty=qty,
             tags={"reason": reason},
         )
 
@@ -190,6 +219,7 @@ class SMAExtendedStrategy(Strategy):
         if sym in self._price_win:
             return
         self._price_win[sym] = deque(maxlen=self._p.slow)
+        self._sums[sym] = {"fast": 0.0, "slow": 0.0}
         self._pos[sym] = False
         self._pending[sym] = None
         self._cooldown[sym] = 0
@@ -198,20 +228,49 @@ class SMAExtendedStrategy(Strategy):
         self._last_signal_ts[sym] = None
 
     def _update_price(self, sym: str, price: float) -> None:
-        self._price_win[sym].append(price)
-        if self._pos[sym]:
-            trail = self._trail[sym]
-            if price > trail:
-                self._trail[sym] = price * (1 - self._p.trail_pct)
+        history = self._price_win[sym]
+        sums = self._sums[sym]
+        fast_n = self._p.fast
+        slow_n = self._p.slow
+
+        # 1. Update Slow Sum (O(1))
+        # If the buffer is full, the oldest item (index 0) is about to be popped.
+        # We must subtract it *before* appending the new price.
+        if len(history) == slow_n:
+            sums["slow"] -= history[0]
+
+        # 2. Update Fast Sum (O(1))
+        # The item leaving the fast window is at index -fast_n.
+        # (e.g. if fast=10, the 10th item from the end is the one leaving the window)
+        if len(history) >= fast_n:
+            sums["fast"] -= history[-fast_n]
+
+        # 3. Add new price to both
+        sums["slow"] += price
+        sums["fast"] += price
+
+        # 4. Update the Deque
+        history.append(price)
 
     def _is_warm(self, sym: str) -> bool:
         return len(self._price_win[sym]) >= self.warmup_bars()
 
     def _sma(self, sym: str) -> tuple[float, float]:
-        prices = list(self._price_win[sym])
-        slow = sum(prices) / len(prices)
-        fast_len = min(self._p.fast, len(prices))
-        fast = sum(prices[-fast_len:]) / fast_len
+        count = len(self._price_win[sym])
+        if count == 0:
+            return 0.0, 0.0
+
+        sums = self._sums[sym]
+
+        # Slow SMA
+        slow = sums["slow"] / count
+
+        # Fast SMA
+        # If count < fast, the sum includes all items (so we divide by count)
+        # If count >= fast, the sum includes only the last 'fast' items
+        fast_divisor = min(count, self._p.fast)
+        fast = sums["fast"] / fast_divisor
+
         return fast, slow
 
     def _trail_hit(self, sym: str, price: float) -> bool:
@@ -223,10 +282,12 @@ class SMAExtendedStrategy(Strategy):
             self._current_day = day
             return
         if day != self._current_day:
+            self._stats_tracker["pnl_strategy"] += self._daily_pnl
             self._current_day = day
             self._daily_pnl = 0.0
 
     def snapshot_state(self) -> dict[str, Any]:
+        """debugging method"""
         snap = super().snapshot_state()
         snap.update(
             {
@@ -239,3 +300,6 @@ class SMAExtendedStrategy(Strategy):
             }
         )
         return snap
+
+    def get_stats(self) -> dict[str, Any]:
+        return self._stats_tracker

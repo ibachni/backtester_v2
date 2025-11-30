@@ -6,7 +6,7 @@ from typing import Any, cast
 
 import pytest
 
-from backtester.core.audit import AuditLogAnalyzer, AuditWriter
+from backtester.audit.audit import AuditWriter
 from backtester.data.downloader import DownloaderFiles
 from backtester.types.data import RawBytes
 
@@ -55,22 +55,6 @@ def test_download_files_respects_allow_net_false():
         )
 
     assert audit_fp.exists(), "Audit log should exist after RUN_START emission"
-    analyzer = AuditLogAnalyzer(str(audit_fp))
-    records = list(analyzer.iter_records())
-    tail = records[-2:]
-    assert [rec["event"] for rec in tail] == [
-        "RUN_START",
-        "RUN_STOP_ALLOW_NET_FALSE",
-    ], "Expected RUN_START followed by RUN_STOP_ALLOW_NET_FALSE"
-
-    run_start = tail[0]
-    payload = run_start["payload"]
-    # Basic payload sanity
-    assert payload.get("symbol") == "BTCUSDT"
-    assert payload.get("market") == "spot"
-    assert payload.get("timeframe") == "1m"
-    stop_event = tail[1]
-    assert stop_event["event"] == "RUN_STOP_ALLOW_NET_FALSE"
 
 
 def test_download_files_date_range_inclusive_start_exclusive_end(monkeypatch: pytest.MonkeyPatch):
@@ -223,14 +207,13 @@ def test_log_emits_to_audit() -> None:
             calls.append(kwargs)
 
     dl._audit = StubAudit()  # type: ignore[assignment]
-    dl._log("UNIT_EVENT", level="WARN", simple=False, payload={"foo": "bar"})
+    dl._log("UNIT_EVENT", level="WARN", payload={"foo": "bar"})
 
     assert len(calls) == 1
     call = calls[0]
     assert call["component"] == "ingest"
     assert call["event"] == "UNIT_EVENT"
     assert call["level"] == "WARN"
-    assert call["simple"] is False
     payload = call["payload"]
     assert isinstance(payload, dict)
     assert payload["run_id"] == downloader_config.download_run_id

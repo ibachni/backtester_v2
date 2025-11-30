@@ -10,15 +10,9 @@ from typing import Any, Deque, Literal, Mapping, Optional, Tuple
 
 from pydantic import BaseModel, ConfigDict
 
-# TODO Additional Validations
+from backtester.types.aliases import Symbol, Tags, UnixMillis
 
-# -------- Aliases (clarify intent) --------
-UnixMillis = int
-UnixMicros = int
-Symbol = str
-Timeframe = str  # e.g., "1s","5s","1m","3m","5m","1h","1d"
-Tags = dict[str, Any]
-AuditRecord = dict[str, Any]
+LOG_LEVELS = {"DEBUG": 10, "INFO": 20, "WARN": 30, "ERROR": 40}
 
 # -------- Enums --------
 
@@ -44,16 +38,17 @@ class OrderType(str, Enum):
     STOP_MARKET = "stop_market"
 
 
-class AckStatus(str, Enum):
-    ACCEPTED = "accepted"
-    REJECTED = "rejected"
-    DUPLICATE = "duplicate"
-    THROTTLED = "throttled"
-    ERROR = "error"
+# class AckStatus(str, Enum):
+#     ACCEPTED = "accepted"
+#     REJECTED = "rejected"
+#     DUPLICATE = "duplicate"
+#     THROTTLED = "throttled"
+#     ERROR = "error"
 
 
 class OrderStatus(str, Enum):
     NEW = "NEW"
+    VALIDATED = "VALIDATED"
     ACK = "ACK"
     WORKING = "WORKING"
     PARTIALLY_FILLED = "PARTIALLY_FILLED"
@@ -173,16 +168,6 @@ class Candle:
     is_final: Optional[bool] = True
 
 
-# --- Strategy
-
-
-@dataclass(frozen=True)
-class StrategyInfo:
-    name: str  # stable identifier
-    version: str = "0.1.0"
-    description: str = ""
-
-
 # --- Orders ---
 
 
@@ -193,6 +178,7 @@ class OrderState:
     order: ValidatedOrderIntent
     remaining: Decimal
     hash: str
+    order_ack: OrderAck
     status: OrderStatus = OrderStatus.ACK
 
     # Prioritize orders that arrive earlier
@@ -358,43 +344,6 @@ class ValidatedStopLimitOrderIntent(ValidatedOrderIntent):
             raise ValueError("SELL: StopLimitOrderIntent.price must be smaller than stop_price")
 
 
-# --- OrderIntent (Legacy) ---
-
-
-@dataclass(frozen=True, slots=True)
-class OrderIntentOld(OrderIntent):
-    """
-    Market: No price, or stop_price
-    Limit: Price is mandatory; post_only is optional
-    Stop-Market: Stop_price mandatory; convert into market order
-    Stop-Limit: Stop-price (trigger) and price (Limit the order converts)
-    TODO TS MISSING
-    """
-
-    symbol: Symbol
-    market: Market
-    side: Side
-    id: str
-    type: OrderType = OrderType.MARKET
-    price: Optional[float] = None
-    stop_price: Optional[float] = None
-    reduce_only: bool = False
-    post_only: bool = False
-    tif: TimeInForce = TimeInForce.GTC
-    client_id: Optional[str] = None
-    tags: Tags = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if self.qty <= 0:
-            raise ValueError("OrderIntent.qty must be > 0.")
-        if self.type in (OrderType.LIMIT, OrderType.STOP_LIMIT) and (self.price is None):
-            raise ValueError("Limit/StopLimit orders require price.")
-        if self.type in (OrderType.STOP, OrderType.STOP_LIMIT, OrderType.STOP_MARKET) and (
-            self.stop_price is None
-        ):
-            raise ValueError("Stop/StopLimit/StopMarket orders require stop_price.")
-
-
 # --- OrderAcknowledged ---
 
 
@@ -406,9 +355,10 @@ class OrderAck:
     symbol: Symbol
     market: Market
     side: Side
-    status: AckStatus  # accepted | rejected | duplicate | throttled | error
-    reason_code: Optional[str] = None  # machine-parseable (e.g., "MIN_NOTIONAL", "PRICE_BAND")
+    status: OrderStatus  # accepted | rejected | duplicate | throttled | error
     reason: Optional[str] = None  # human-readable detail
+    errors: Optional[list[str]] = None  # machine-parseable ("MIN_NOTIONAL", "PRICE_BAND")
+    warnings: Optional[list[str]] = None  # machine-parseable ("")
 
     exchange_order_id: Optional[str] = None  # set when accepted by venue/paper
     router_order_id: Optional[str] = None  # internal id minted by router/adapter
@@ -464,11 +414,22 @@ class SymbolSpec:
     """
 
     symbol: Symbol
-    tick_size: float
-    lot_size: float
-    min_notional: float
-    price_band_low: Optional[float] = None
-    price_band_high: Optional[float] = None
+    base_asset: str
+    quote_asset: str
+
+    # Precision, granularity
+    tick_size: Decimal
+    lot_size: Decimal
+
+    # Limits
+    min_notional: Decimal
+    min_qty: Decimal
+    max_qty: Decimal
+    price_band_low: Decimal
+    price_band_high: Decimal
+
+    # Trading
+    trading: bool
 
 
 # --- Account ---

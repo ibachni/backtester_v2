@@ -7,8 +7,10 @@ from dataclasses import dataclass, fields
 from decimal import Decimal
 from typing import Any, Deque, Dict, Iterator, List, Mapping, Optional
 
+from backtester.config.configs import StrategyInfo
 from backtester.core.clock import Clock
 from backtester.strategy.base import Strategy
+from backtester.types.aliases import Timeframe
 from backtester.types.types import (
     Candle,
     Fill,
@@ -16,8 +18,6 @@ from backtester.types.types import (
     MarketOrderIntent,
     OrderIntent,
     Side,
-    StrategyInfo,
-    Timeframe,
 )
 
 # TODO: switch order facing quantities to fixed precision (Decimal)

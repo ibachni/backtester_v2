@@ -13,6 +13,10 @@
     "python.testing.pytestEnabled": true,
     "python.testing.unittestEnabled": false,
     "github.copilot.enable": {
-        "*": false
+        "*": false,
+        "plaintext": false,
+        "markdown": false,
+        "scminput": false,
+        "python": false
     }
 }

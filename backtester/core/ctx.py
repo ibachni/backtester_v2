@@ -1,14 +1,44 @@
 # core/ctx.py
 from __future__ import annotations
 
-import logging
-import random
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from decimal import Decimal
 from types import MappingProxyType
-from typing import Any, Callable, Mapping, Optional, Sequence
+from typing import Callable, Mapping, Optional, Sequence
 
 from backtester.core.clock import Clock
-from backtester.types.types import PortfolioSnapshot, Symbol, SymbolSpec, UnixMillis
+from backtester.types.aliases import Symbol, UnixMillis
+from backtester.types.types import PortfolioSnapshot, SymbolSpec
+from backtester.utils.utility import get_symbol_spec
+
+"""
+- What does the Context provider do?
+    - consisten snapshot of the world at a given sim step
+    - Provide high level APIs instead of raw engine internals
+        - Position in AAPL
+        - Give me last 60 days of prices
+        - Clean interface for reading state
+
+- Main components
+    - clock now
+    - sim metadata, seed
+    - Market data
+        - Spot data
+        - historical data
+    - Portfolio & account
+        - get position per symbol
+        - account snapshot (cash, equity, margin used, margin available, urpnl, rpnl)
+        - Open orders
+    - Convenience
+        - Logging (with message)
+        - record metric
+
+- Key design choices
+    - in place update vs object each step
+    - read only
+
+
+"""
 
 
 class ReadOnlyPortfolio:
@@ -22,22 +52,22 @@ class ReadOnlyPortfolio:
         self,
         *,
         # a function, that returns a Portfolio Snapshot when returned.
-        snapshot_fn: Callable[[], PortfolioSnapshot],
-        position_qty_fn: Callable[[Symbol], float],
-        equity_base_fn: Callable[[], float],
+        snapshot_fn: Callable[[], Optional[PortfolioSnapshot]],
+        position_qty_fn: Callable[[Symbol], Optional[Decimal]],
+        equity_base_fn: Callable[[], Decimal],
     ) -> None:
         self._snapshot_fn = snapshot_fn
         self._position_qty_fn = position_qty_fn
         self._equity_base_fn = equity_base_fn
 
-    def snapshot(self) -> PortfolioSnapshot:
+    def snapshot(self) -> Optional[PortfolioSnapshot]:
         return self._snapshot_fn()
 
-    def position_qty(self, symbol: Symbol) -> float:
-        return float(self._position_qty_fn(symbol))
+    def position_qty(self, symbol: Symbol) -> Optional[Decimal]:
+        return self._position_qty_fn(symbol)
 
-    def equity_base(self) -> float:
-        return float(self._equity_base_fn())
+    def equity_base(self) -> Decimal:
+        return self._equity_base_fn()
 
 
 class MetricsSink:
@@ -92,8 +122,8 @@ class SymbolSpecs:
     Read-only registry of per-symbol trading constraints.
     """
 
-    def __init__(self, specs: Mapping[Symbol, SymbolSpec]) -> None:
-        self._specs = dict(specs)  # copy to decouple
+    def __init__(self, symbols: list[Symbol]) -> None:
+        self._specs = get_symbol_spec(symbols)
 
     def get(self, symbol: Symbol) -> Optional[SymbolSpec]:
         return self._specs.get(symbol)
@@ -133,14 +163,18 @@ class Context:
     clock: Clock
     portfolio: ReadOnlyPortfolio
     specs: SymbolSpecs
-    base_ccy: str
-    rng: random.Random = field(repr=False)
-    metrics: MetricsSink
-    log: logging.Logger
-    # Global configuration parameters that apply across the backtest run
-    # - base currency, slippage, commission, max position, max leverage etc. etc.
-    params: Mapping[str, Any] = field(default_factory=dict, repr=False)
-    run_id: str = "run-unknown"
+
+    # To be added
+    # audit: AuditWriter
+    # bus: Bus
+    # base_ccy: str
+    # rng: random.Random = field(repr=False)
+    # metrics: MetricsSink
+    # log: logging.Logger
+    # # Global configuration parameters that apply across the backtest run
+    # # - base currency, slippage, commission, max position, max leverage etc. etc.
+    # params: Mapping[str, Any] = field(default_factory=dict, repr=False)
+    # run_id: str = "run-unknown"
 
     # ----- convenience methods -----
 
@@ -153,49 +187,26 @@ class Context:
 
     # ----- factory helpers (create instance of the class) -----
     def make_context(
+        self,
         *,
-        clock: Any,
-        portfolio_snapshot_fn: Callable[[], PortfolioSnapshot],
-        position_qty_fn: Callable[[Symbol], float],
-        equity_base_fn: Callable[[], float],
-        specs: Mapping[Symbol, SymbolSpec],
-        base_ccy: str,
-        rng_seed: Optional[int] = None,
-        metrics: Optional[MetricsSink] = None,
-        logger: Optional[logging.Logger] = None,
-        params: Optional[Mapping[str, Any]] = None,
-        run_id: Optional[str] = None,
+        clock: Clock,
+        portfolio_snapshot_fn: Callable[[], Optional[PortfolioSnapshot]],
+        position_qty_fn: Callable[[Symbol], Optional[Decimal]],
+        equity_base_fn: Callable[[], Decimal],
+        symbols: list[Symbol],
     ) -> Context:
-        seed = int(rng_seed) if rng_seed is not None else hash(params)
-        rng = random.Random(seed)
-        m = metrics or MetricsSink()
-        log = logger or logging.getLogger("backtester.ctx")
-        if not log.handlers:
-            # minimal console handler; engine can override later
-            handler = logging.StreamHandler()
-            formatter = logging.Formatter(
-                fmt="%(asctime)s %(levelname)s [%(name)s] %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-            handler.setFormatter(formatter)
-            log.addHandler(handler)
-            log.setLevel(logging.INFO)
+        # Portfolio
         ro_portfolio = ReadOnlyPortfolio(
             snapshot_fn=portfolio_snapshot_fn,
             position_qty_fn=position_qty_fn,
             equity_base_fn=equity_base_fn,
         )
-        ro_specs = SymbolSpecs(specs)
-        ro_params = MappingProxyType(dict(params) if params is not None else {})
+
+        # Specs
+        ro_specs = SymbolSpecs(symbols)
 
         return Context(
             clock=clock,
             portfolio=ro_portfolio,
             specs=ro_specs,
-            base_ccy=base_ccy,
-            rng=rng,
-            metrics=m,
-            log=log,
-            params=ro_params,
-            run_id=run_id or f"run-{seed:x}",
         )
