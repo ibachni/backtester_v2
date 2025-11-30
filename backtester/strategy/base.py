@@ -5,40 +5,21 @@ Goal: define the strategy interface
 import hashlib
 import json
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
-from enum import Enum
+from decimal import ROUND_DOWN, ROUND_FLOOR, ROUND_HALF_UP, Decimal
 from types import MappingProxyType
-from typing import Any, Mapping, Optional, Sequence
+from typing import Any, Mapping, Optional, Sequence, Union
 
-from backtester.adapters.types import Candle, Fill, OrderIntent, Timeframe
-from backtester.core.ctx import Context
-
-# --- Exceptions ---
-
-
-class StrategyError(Exception):
-    """Recoverable strategy error (engine can continue or quarantine the strategy)."""
-
-
-class StrategyPanic(Exception):
-    """Non-recoverable; engine should disable this strategy instance cleanly."""
-
-
-# ---
-
-
-@dataclass(frozen=True)
-class StrategyInfo:
-    name: str  # stable identifier
-    version: str = "0.1.0"
-    description: str = ""
-
-
-class _StrategyState(str, Enum):
-    INITIALIZED = "initialized"
-    RUNNING = "running"
-    STOPPED = "stopped"
-
+from backtester.config.configs import StrategyInfo
+from backtester.types.aliases import Timeframe
+from backtester.types.types import (
+    ZERO,
+    Candle,
+    Fill,
+    OrderAck,
+    OrderIntent,
+    SymbolSpec,
+    _StrategyState,
+)
 
 # --- Base strategy contract ---
 
@@ -49,7 +30,6 @@ class Strategy(ABC):
         - event-driven (on_start, on_candle, on_fill, on_timer, on_end)
         - side-effect free: returns OrderIntent[]; engine does all I/O
         - Deterministic
-        - Small, tagged outputs; engine enforces constraints, risk, exec
 
     The ctx (context) exposes read-only views
         - clock, portfolio, positions, risk_limits, fees, lot_sizes, logger
@@ -60,12 +40,13 @@ class Strategy(ABC):
     """
 
     def __init__(self, params: Mapping[str, Any], *, info: Optional[StrategyInfo] = None) -> None:
-        # read-only (immutable view) of a dictionary/mapping (when tried, TypeError)
+        # MappingProxyType is a read-only (immutable view) of a dictionary/mapping (TypeError)
         self._params = MappingProxyType(dict(params))
         self._params_hash = self._stable_params_hash(self._params)
         self._info = info or StrategyInfo(name=self.__class__.__name__.lower())
-        self._mode: Optional[str] = None  # Initialized, running, stopped
-        # self._cooldown_until_ms: int = 0  # Cooldown gate in UTC ms; 0 means no cooldown
+        self._mode: Optional[_StrategyState] = None  # Initialized, running, stopped
+
+    # --- Property methods ---
 
     @property
     def info(self) -> StrategyInfo:
@@ -85,7 +66,7 @@ class Strategy(ABC):
         """
         List of topics this strategy wants to subscribe to.
         Declares the event feeds the engine should wire from the bus.
-        To be kept statis during a run; engine resolves once at startup
+        To be kept static during a run; engine resolves once at startup
         """
         return ()
 
@@ -103,7 +84,7 @@ class Strategy(ABC):
 
     def warmup_bars(self) -> int:
         """
-        number of bars to warm up before the strayegy can produce isgnals
+        Number of bars to warm up before the strategy can produce signals
         """
         return 0
 
@@ -147,6 +128,9 @@ class Strategy(ABC):
 
         """
 
+    def on_reject(self, ack: OrderAck) -> None:
+        """When: After an Order has been rejected."""
+
     def on_timer(
         self,
         # ctx: Context,
@@ -168,7 +152,7 @@ class Strategy(ABC):
     ) -> None:
         """
         Finalize and dump diagnostics.
-            - End-of-run hosekeeping: emit final metrics to ctx.metrics
+            - End-of-run housekeeping: emit final metrics to ctx.metrics
             - log summary, verify invariants
             - No I/O; no orders here
         """
@@ -186,29 +170,6 @@ class Strategy(ABC):
             # etc.
         }
 
-    # --- parameter validation hook (optional to override) --
-
-    def log_event(self, ctx: Context, level: str, msg: str, **fields: Any) -> None:
-        base = {
-            "strategy": self.info.name,
-            "version": self.info.version,
-            "run_id": ctx.run_id,
-            "params_hash": self.params_hash,
-            "mode": self._mode or "unknown",
-        }
-
-        base.update(fields)
-        line = msg + " " + " ".join(f"{k}={v}" for k, v in base.items())
-        lvl = (level or "info").lower()
-        if lvl == "debug":
-            ctx.log.debug(line)
-        elif lvl == "warning" or lvl == "warn":
-            ctx.log.warning(line)
-        elif lvl == "error":
-            ctx.log.error(line)
-        else:
-            ctx.log.info(line)
-
     # --- Internals ----
 
     @staticmethod
@@ -222,3 +183,41 @@ class Strategy(ABC):
             blob = json.dumps(items, separators=(",", ":"), default=str).encode("utf-8")
         h = hashlib.sha1(blob).hexdigest()
         return h[:10]
+
+    # --- Helpers ---
+
+    def dec(self, x: Union[str, int, float]) -> Decimal:
+        return x if isinstance(x, Decimal) else Decimal(str(x))
+
+    def _to_step(self, value: Decimal, step: Decimal, *, rounding: str) -> Decimal:
+        if step <= ZERO:
+            return value
+        # Works for non power-of-10 steps (e.g., 0.005): k = floor/round(value/step) * step
+        k = (value / step).to_integral_value(rounding=rounding)
+        return k * step
+
+    def quantize_price(
+        self, spec: Optional[SymbolSpec], price: Decimal, *, rounding: str = ROUND_HALF_UP
+    ) -> Decimal:
+        if not spec or not getattr(spec, "tick_size", None):
+            return price
+        tick = spec.tick_size
+        return self._to_step(price, tick, rounding=rounding)
+
+    def quantize_qty(
+        self, spec: Optional[SymbolSpec], qty: Decimal, *, rounding: str = ROUND_FLOOR
+    ) -> Decimal:
+        if not spec or not getattr(spec, "lot_size", None):
+            return qty
+        lot = spec.lot_size
+        sign = 1 if qty >= ZERO else -1
+        q_abs = self._to_step(
+            abs(qty), lot, rounding=ROUND_FLOOR if rounding == ROUND_FLOOR else ROUND_DOWN
+        )
+        return q_abs if sign > 0 else -q_abs
+
+    def meets_min_notional(self, spec: Optional[SymbolSpec], qty: Decimal, price: Decimal) -> bool:
+        if not spec or not getattr(spec, "min_notional", None):
+            return True
+        mn = spec.min_notional
+        return (abs(qty) * price) >= mn

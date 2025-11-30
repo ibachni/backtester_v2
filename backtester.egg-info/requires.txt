@@ -1,0 +1,8 @@
+pydantic<3,>=2.4
+polars>=0.20
+
+[dev]
+pytest==8.3.3
+mypy==1.11.2
+ruff==0.6.9
+types-setuptools

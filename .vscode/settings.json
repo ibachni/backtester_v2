@@ -1,6 +1,6 @@
 {
     "python.defaultInterpreterPath": "${env:HOME}/mambaforge/envs/${workspaceFolderBasename}/bin/python",
-    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.typeCheckingMode": "standard",
     "editor.formatOnSave": true,
     "[python]": {
         "editor.codeActionsOnSave": {
@@ -13,6 +13,10 @@
     "python.testing.pytestEnabled": true,
     "python.testing.unittestEnabled": false,
     "github.copilot.enable": {
-        "*": false
+        "*": false,
+        "plaintext": false,
+        "markdown": false,
+        "scminput": false,
+        "python": false
     }
 }

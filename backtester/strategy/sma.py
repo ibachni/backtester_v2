@@ -1,12 +1,26 @@
 from __future__ import annotations
 
+import itertools
 from collections import deque
 from collections.abc import Mapping as CMapping
 from dataclasses import dataclass, fields
+from decimal import Decimal
 from typing import Any, Deque, Dict, Iterator, List, Mapping, Optional
 
-from backtester.adapters.types import Candle, Fill, OrderIntent, OrderType, Side, Timeframe
-from backtester.strategy.base import Strategy, StrategyInfo
+from backtester.config.configs import StrategyInfo
+from backtester.core.clock import Clock
+from backtester.strategy.base import Strategy
+from backtester.types.aliases import Timeframe
+from backtester.types.types import (
+    Candle,
+    Fill,
+    Market,
+    MarketOrderIntent,
+    OrderIntent,
+    Side,
+)
+
+# TODO: switch order facing quantities to fixed precision (Decimal)
 
 
 @dataclass(frozen=True)
@@ -15,7 +29,7 @@ class SMACrossParams(CMapping[str, Any]):
     timeframe: Timeframe | None = None
     fast: int = 5
     slow: int = 20
-    qty: float = 0.01
+    qty: Decimal = Decimal("0.01")
     allow_reentry: bool = False  # if False, one round-trip per symbol
 
     def __iter__(self) -> Iterator[str]:
@@ -45,9 +59,12 @@ class SMACrossStrategy(Strategy):
       - _last_signal_ts[s]: last candle end_ms we signaled on (observability)
     """
 
-    def __init__(self, params: Mapping[str, Any], *, info: Optional[StrategyInfo] = None) -> None:
-        # ...existing code...
+    def __init__(
+        self, clock: Clock, params: Mapping[str, Any], *, info: Optional[StrategyInfo] = None
+    ) -> None:
         super().__init__(params, info=info or StrategyInfo(name="sma_cross"))
+        self._seq = itertools.count()
+        self._clock = clock
 
         if isinstance(params, SMACrossParams):
             p = params
@@ -57,12 +74,13 @@ class SMACrossStrategy(Strategy):
                 timeframe=self.params.get("timeframe"),
                 fast=int(self.params.get("fast", 5)),
                 slow=int(self.params.get("slow", 20)),
-                qty=float(self.params.get("qty", 0.001)),
+                qty=self.params.get("qty", Decimal("0.1")),
                 allow_reentry=bool(self.params.get("allow_reentry", False)),
             )
         if p.fast <= 0 or p.slow <= 0 or p.fast >= p.slow:
             raise ValueError("Require 0 < fast < slow for SMA crossover")
 
+        # Safe the params!
         self._p = p
         # Per symbol rolling window of recent prices (deque), sized to at most slow
         self._price_win: Dict[str, Deque[float]] = {}
@@ -75,7 +93,6 @@ class SMACrossStrategy(Strategy):
         self._pending: Dict[str, Optional[str]] = {}
         # UTC end_ms of last signal per symbol (observability/idempotency guard)
         self._last_signal_ts: Dict[str, Optional[int]] = {}
-        # ...existing code...
 
     # --- strategy metadata ---
 
@@ -109,7 +126,7 @@ class SMACrossStrategy(Strategy):
         # Process
         s = candle.symbol
         if self.symbols() and s not in self.symbols():
-            return intents  # ignore symbols we didn't declare
+            return intents  # symbols not declared are ignored
 
         # Lazy init for unforeseen symbols (defensive)
         if s not in self._price_win:
@@ -131,94 +148,57 @@ class SMACrossStrategy(Strategy):
         fast_sma = sum(prices[-fast_len:]) / fast_len
 
         in_pos = self._pos[s]
-        # can_reenter = self._p.allow_reentry or not self._done_round_trip[s]
-        # pending = self._pending[s]
+        can_reenter = self._p.allow_reentry or not self._done_round_trip[s]
+        pending = self._pending[s]
 
         # Entry: fast > slow, not in position, not blocked, no pending order
-        if (
-            (not in_pos)
-            and
-            # can_reenter and
-            # pending is None and
-            fast_sma > slow_sma
-        ):
+        if (not in_pos) and can_reenter and pending is None and fast_sma > slow_sma:
             intent = self._mk_market_intent(
                 symbol=s, side="buy", qty=self._p.qty, reason="entry_fast_gt_slow"
             )
             intents.append(intent)
             self._pending[s] = "buy"
             self._last_signal_ts[s] = candle.end_ms
-            # self.log_event(
-            #     ctx,
-            #     "info",
-            #     "signal_entry",
-            #     symbol=s,
-            #     end_ms=candle.end_ms,
-            #     fast_sma=round(fast_sma, 8),
-            #     slow_sma=round(slow_sma, 8),
-            #     qty=self._p.qty,
-            # )
-            print("buy", self.snapshot_state())
             return intents
 
         # Exit: fast < slow, in position, no pending order
-        if (
-            # in_pos and
-            # pending is None and
-            fast_sma < slow_sma
-        ):
+        if in_pos and pending is None and fast_sma < slow_sma:
             intent = self._mk_market_intent(
                 symbol=s, side="sell", qty=self._p.qty, reason="exit_fast_lt_slow"
             )
             intents.append(intent)
             self._pending[s] = "sell"
             self._last_signal_ts[s] = candle.end_ms
-            # self.log_event(
-            #     ctx,
-            #     "info",
-            #     "signal_exit",
-            #     symbol=s,
-            #     end_ms=candle.end_ms,
-            #     fast_sma=round(fast_sma, 8),
-            #     slow_sma=round(slow_sma, 8),
-            #     qty=self._p.qty,
-            # )
-            print("sell", self.snapshot_state())
             return intents
 
-        print("neither", self.snapshot_state())
         return intents
 
     def on_fill(self, fill: Fill) -> Optional[List[OrderIntent]]:
         # Minimal state update based on fill side
         s = getattr(fill, "symbol", None)
-        sd = str(getattr(fill, "side", "")).lower()
+        side = getattr(fill, "side", None)
+        # print(s, side)
+        if isinstance(side, Side):
+            side_key = side.value
+        elif isinstance(side, str):
+            side_key = side.lower()
+        else:
+            side_key = str(side).lower()
         if not s:
             return None
-
-        if sd == "buy":
+        if side_key == "buy":
             self._pos[s] = True
-        elif sd == "sell":
+        elif side_key == "sell":
             self._pos[s] = False
             if not self._p.allow_reentry:
                 self._done_round_trip[s] = True
-
-        # Clear pending after a fill is observed
         self._pending[s] = None
-        # self.log_event(
-        #     ctx, "info", "fill_applied", symbol=s, side=sd, qty=getattr(fill, "qty", "?")
-        # )
+        # print("Pending:", self._pending, "Positions:", self._pos)
         return []
 
     def on_end(self) -> None:
         open_syms = [s for s, p in self._pos.items() if p]
         print(f"On_end: positions open: {open_syms}")
-        # self.log_event(
-        #     ctx,
-        #     "info",
-        #     "strategy_ended",
-        #     open_positions=",".join(open_syms) if open_syms else "",
-        # )
 
     # --- observability ---
 
@@ -240,23 +220,23 @@ class SMACrossStrategy(Strategy):
 
     # --- helpers ---
 
-    def _mk_market_intent(self, *, symbol: str, side: str, qty: float, reason: str) -> OrderIntent:
+    def _mk_market_intent(
+        self, *, symbol: str, side: str, qty: Decimal, reason: str
+    ) -> OrderIntent:
         """
         Use ctx.order_factory if available; otherwise try OrderIntent constructor; finally fall back
         to a simple dict (useful for dry integration tests before wiring the execution path).
         """
         tag = f"sma_cross:{reason}"
-        # # Order Factory not yet available!
-        # of = getattr(ctx, "order_factory", None)
-        # tag = f"sma_cross:{reason}"
-        # try:
-        #     if of is not None and hasattr(of, "market"):
-        #         return of.market(symbol=symbol, side=side, qty=qty, tag=tag)
-        # except Exception:
-        #     pass
-
         # Fallbacks (be liberal in what we output — engine/risk layer enforces constraints)
         side_enum = Side.BUY if side == "buy" else Side.SELL
-        return OrderIntent(
-            symbol=symbol, side=side_enum, type=OrderType.MARKET, qty=qty, tags={"tag": tag}
+        return MarketOrderIntent(
+            symbol=symbol,
+            market=Market.SPOT,
+            side=side_enum,
+            id=str(next(self._seq)),
+            ts_utc=self._clock.now(),
+            strategy_id=self.info.name,
+            tags={"tag": tag},
+            qty=qty,
         )
