@@ -1061,10 +1061,10 @@ class BacktestEngine:
         print("\n[UNIVERSE DATA]")
         msg = "ERROR: Could not be retrieved"
         print(
-            f"{'Primary Assets':<{W}}:{self._cfg.strategy_cfg.strategy_params.get("symbols", msg)}"
+            f"{'Primary Assets':<{W}}:{self._cfg.strategy_cfg.strategy_params.get('symbols', msg)}"
         )
         next_name = "Data Frequency"
-        print(f"{next_name:<{W}}: {self._cfg.strategy_cfg.strategy_params.get("timeframe", msg)}")
+        print(f"{next_name:<{W}}: {self._cfg.strategy_cfg.strategy_params.get('timeframe', msg)}")
         print("\n[TIME HORIZON]")
         print(f"{'Start Date':<{W}}: {self._cfg.strategy_cfg.start_dt.strftime('%Y-%m-%d')}")
         print(f"{'End Date':<{W}}: {self._cfg.strategy_cfg.end_dt.strftime('%Y-%m-%d')}")
