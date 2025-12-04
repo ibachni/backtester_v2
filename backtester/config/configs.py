@@ -58,7 +58,7 @@ class DataSubscriptionConfig:
     batch_size: int = 8192
 
     # path
-    base_path: str = "/Users/nicolas/Data/crypto_data/parquet/"
+    base_path: Path = Path("/Users/nicolas/Data/crypto_data/parquet/")
     exchange: str = "binance"
     market: str = "spot"
     data_kind: str = "candle"
@@ -140,6 +140,7 @@ class AccountConfig:
 class AuditConfig:
     log_dir: Path
     log_level: int = 10
+    debug: bool = True
     capture_market_data: bool = False
 
 
@@ -190,6 +191,7 @@ class StrategyConfig:
     start_dt: dt.datetime
     end_dt: dt.datetime
     data_cfg: dict[str, DataSubscriptionConfig] = field(default_factory=dict)
+    data_base_path: Path = Path("/Users/nicolas/Data/crypto_data/parquet/")
 
     def __post_init__(self) -> None:
         if not bool(self.data_cfg):
@@ -209,6 +211,7 @@ class StrategyConfig:
                 end_dt=self.end_dt,
                 timeframe=timeframe,
                 timeframe_data="1m",
+                base_path=self.data_base_path,
             )
 
 

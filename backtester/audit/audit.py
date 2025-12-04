@@ -18,7 +18,6 @@ from backtester.types.topics import (
     T_CANDLES,
     T_CONTROL,
     T_FILLS,
-    T_LOG,
     T_ORDERS_ACK,
     T_ORDERS_CANCELED,
     T_ORDERS_REJECTED,
@@ -146,7 +145,8 @@ class AuditWriter:
         self._cfg = cfg
         self.root = Path(cfg.log_dir) / run_ctx.run_id
         self.root.mkdir(parents=True, exist_ok=True)
-        self.capture_data = cfg.capture_market_data
+        self.debug = cfg.debug
+        self.capture_market_data = cfg.capture_market_data
 
         # AuditWriter is a subscriber
         self._queue: asyncio.Queue = asyncio.Queue(maxsize=10000)
@@ -307,29 +307,48 @@ class AuditWriter:
 
         # 3. DEBUG STREAM (Context - JSONL)
         # Unstructured, used for debugging strategy logic.
-        elif event.topic in (
-            T_ORDERS_REJECTED,
-            T_ORDERS_CANCELED,
-            T_CONTROL,
-            T_LOG,
-        ):
-            # Wrap with topic for clarity in the JSON file
-            record = {
-                "topic": event.topic,
-                "ts_wall": datetime.now(timezone.utc).isoformat(),
-                "payload": asdict(event.payload)
-                if hasattr(event.payload, "__dataclass_fields__")
-                else str(event.payload),
-            }
-            self._write_json("debug.jsonl", record)
+        # Always log control events
+        if event.topic == T_CONTROL:
+            payload = (
+                self.control_to_payload(event.payload)
+                if isinstance(event.payload, ControlEvent)
+                else str(event.payload)
+            )
+            self._write_json(
+                "debug.jsonl",
+                {
+                    "topic": event.topic,
+                    "ts_wall": datetime.now(timezone.utc).isoformat(),
+                    "payload": payload,
+                },
+            )
+        if self.debug:
+            if event.topic in (
+                T_ORDERS_REJECTED,
+                T_ORDERS_CANCELED,
+                T_CONTROL,
+            ):
+                # Wrap with topic for clarity in the JSON file
+                record = {
+                    "topic": event.topic,
+                    "ts_wall": datetime.now(timezone.utc).isoformat(),
+                    "payload": asdict(event.payload)
+                    if hasattr(event.payload, "__dataclass_fields__")
+                    else str(event.payload),
+                }
+                self._write_json("debug.jsonl", record)
 
         # 4. REPORT
         elif event.topic == T_REPORT:
-            self._write_json("report.json", event.payload)
+            self._write_json("report.json", self._normalize_payload(event.payload))
 
         # 5. DATA STREAM (Market Data - JSONL)
         # High volume, (self.capture_data activated)
-        elif self.capture_data and event.topic == T_CANDLES and isinstance(event.payload, Candle):
+        elif (
+            self.capture_market_data
+            and event.topic == T_CANDLES
+            and isinstance(event.payload, Candle)
+        ):
             self._write_json("market_data.jsonl", asdict(event))
 
     # --- Writers ---
@@ -354,6 +373,13 @@ class AuditWriter:
         # Use default=str to handle UUIDs, Decimals, Dates safely
         line = orjson.dumps(data, default=str)
         self._files[filename].write(line + b"\n")
+
+    def _normalize_payload(self, payload: Any) -> dict[str, Any]:
+        if isinstance(payload, dict):
+            return payload
+        if hasattr(payload, "__dataclass_fields__"):
+            return asdict(payload)
+        return {"value": payload}
 
     def _open_streams(self) -> None:
         # Files are opened lazily in _write methods, but we prepare directory

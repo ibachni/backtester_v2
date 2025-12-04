@@ -57,6 +57,7 @@ This document serves as a registry of inputs (subscriptions) and outputs (public
 | :--- | :--- | :--- | :--- |
 | `T_ORDERS_SANITIZED` | `ValidatedOrderIntent` | `on_order` | Accepts validated orders, handles de-duplication, and queues them. |
 | `T_CANDLES` | `Candle` | `on_candle` | Matches working orders against market data to generate fills. |
+| `T_CONTROL` | `ControlEvent` | `Runner.run` | Handles `STOP` signals. |
 
 ### Outputs
 | Topic | Payload | Trigger | Notes |
@@ -85,3 +86,56 @@ This document serves as a registry of inputs (subscriptions) and outputs (public
 | `T_ACCOUNT_SNAPSHOT` | `PortfolioSnapshot` | `publish_latest_snapshot` | Emits portfolio state (equity, cash, positions). |
 | `T_TRADE_EVENT` | `TradeEvent` / `LotClosedEvent` | `apply_fill` | Emits trade details and realized PnL events. |
 | `T_LOG` | `LogEvent` | `_emit_log` | Logs account-specific events (e.g., dust cleanup). |
+
+---
+
+## Performance
+**Component:** `PerformanceEngine` (`backtester.core.performance`)
+**Runner:** `PerformanceRunner` (`backtester.core.backtest_engine_newest`)
+
+### Inputs
+| Topic | Payload | Handler | Notes |
+| :--- | :--- | :--- | :--- |
+| `T_CANDLES` | `Candle` | `on_bar` | Updates the sampler with the latest bar time. |
+| `T_ACCOUNT_SNAPSHOT` | `PortfolioSnapshot` | `on_snapshot` | Updates equity curve and risk metrics. |
+| `T_TRADE_EVENT` | `TradeEvent` | `on_trade` | Updates trade statistics (turnover, fees). |
+| `T_LOT_EVENT` | `LotClosedEvent` | `on_lot_closed` | Updates trade statistics (win rate, PnL). |
+| `T_CONTROL` | `ControlEvent` | `Runner.run` | Handles `STOP` signals. |
+
+### Outputs
+| Topic | Payload | Trigger | Notes |
+| :--- | :--- | :--- | :--- |
+| None | - | - | Passive consumer; produces artifacts at end of run. |
+
+---
+
+## Audit
+**Component:** `AuditWriter` (`backtester.audit.audit`)
+**Runner:** `AuditRunner` (`backtester.core.backtest_engine_newest`)
+
+### Inputs
+| Topic | Payload | Handler | Notes |
+| :--- | :--- | :--- | :--- |
+| `*` | `Any` | `_io_worker` | Subscribes to all major topics (`T_ORDERS_*`, `T_FILLS`, `T_LOG`, `T_ACCOUNT_SNAPSHOT`, etc.) to persist event history. |
+
+### Outputs
+| Topic | Payload | Trigger | Notes |
+| :--- | :--- | :--- | :--- |
+| None | - | - | Writes to `events.jsonl` and `run.log` on disk. |
+
+---
+
+## Monitor
+**Component:** `ConsoleMonitor` (`backtester.audit.monitor`)
+**Runner:** `MonitorRunner` (`backtester.core.backtest_engine_newest`)
+
+### Inputs
+| Topic | Payload | Handler | Notes |
+| :--- | :--- | :--- | :--- |
+| `T_CANDLES` | `Candle` | `update` | Updates progress bar and simulation speed metrics. |
+| `T_ACCOUNT_SNAPSHOT` | `PortfolioSnapshot` | `update` | Displays current equity and PnL in the console. |
+
+### Outputs
+| Topic | Payload | Trigger | Notes |
+| :--- | :--- | :--- | :--- |
+| None | - | - | Writes live progress to `stdout`. |

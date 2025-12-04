@@ -19,7 +19,7 @@ class BacktestAnalyzer:
 
         # Data containers
         self.df_account: Optional[pd.DataFrame] = None
-        self.df_trades: Optional[Series[type[object]]] = None
+        self.df_trades: Optional[Series[float]] = None
         self.report: Dict[str, Any] = {}
         self.meta: dict[str, Any] = {}
 

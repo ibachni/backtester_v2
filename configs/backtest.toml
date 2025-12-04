@@ -1,0 +1,41 @@
+[run_info]
+run_name = "TEST"
+
+[general]
+output_dir = "runs"
+data_path = "/Users/nicolas/Data/crypto_data/parquet"
+
+[bus]
+flush_check_interval = 0.01
+default_buffer_size = 1024
+validate_schema = false
+
+[audit]
+debug = false
+capture_market_data = false
+
+[feeder]
+align = "outer"
+
+[validation]
+
+[sim]
+slippage_model = "SlippageModel"
+slippage_bps = 1
+fee_model = "FixedBps"
+fee_bps = 1
+conservative_gaps = true
+participation_bps = 500
+
+[account]
+starting_cash = "10000"
+base_ccy = "USDT"
+
+[performance]
+
+[period]
+start_dt = "2019-01-01"
+end_dt = "2025-01-01"
+
+[strategy]
+strategy = "sma_extended"

@@ -11,7 +11,6 @@ This document defines how our coding agents collaborate to plan, research, imple
 
 ## 1) Purpose & Scope
 
-- Orchestrate **Planner**, **Researcher**, **Implementer**, and **Reviewer** to ship small, safe increments.
 - Applies to all code in this project (mono-repo supported). Default language: **Python 3.11+**.
 
 ---
@@ -20,18 +19,16 @@ This document defines how our coding agents collaborate to plan, research, imple
 
 1) **Determinism by default** — same code+config+data+seed ⇒ same outputs; log the seed and git SHA.
 2) **Safety first** — fail-closed; no live orders unless explicitly enabled; global halt/flatten exists.
-3) **Small slices** — target ≤ 400 LOC per PR; if bigger, justify.
-4) **Interfaces before code** — lock contracts first; breaking changes require ADR + migration notes.
-5) **Observability** — structured logs, metrics, run IDs; snapshot/replay.
-6) **Test pyramid** — property + unit > integration > e2e; every PR raises the test bar.
-7) **Time & ordering** — UTC internally; strictly increasing market data timestamps; no look-ahead.
-8) **I/O policy** — no network in backtests unless `--allow-net` is set.
+3) **Interfaces before code** — lock contracts first; breaking changes require ADR + migration notes.
+4) **Observability** — structured logs, metrics, run IDs; snapshot/replay.
+5) **Time & ordering** — UTC internally; strictly increasing market data timestamps; no look-ahead.
+6) **I/O policy** — no network in backtests unless `--allow-net` is set.
 
 ---
 
-## 3) Roles at a Glance
+<!-- ## 3) Roles at a Glance
 
-### Planner (Copilot)
+ ### Planner (Copilot)
 - Breaks the idea into a minimal, testable **slice**.
 - Produces a **Task Ticket** with contracts, acceptance criteria, failing tests, ADR stub if needed.
 
@@ -123,4 +120,4 @@ This document defines how our coding agents collaborate to plan, research, imple
     "contracts": ["backtester/ports/..."],
     "failing_tests": ["tests/e2e/test_parity.py::test_mvp_parity"]
   }
-}
+} -->

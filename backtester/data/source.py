@@ -289,20 +289,6 @@ class ParquetCandleSource(CandleSource):
                             is_final=is_final,
                         )
 
-                        # candle = Candle(
-                        #     symbol=self._symbol,
-                        #     timeframe=self._timeframe_data,
-                        #     start_ms=start_ms,
-                        #     end_ms=end_ms,
-                        #     open=float(o_arr[i]),
-                        #     high=float(h_arr[i]),
-                        #     low=float(l_arr[i]),
-                        #     close=float(c_arr[i]),
-                        #     volume=float(v_arr[i]),
-                        #     trades=int(n_arr[i]) if n_arr[i] is not None else 0,
-                        #     is_final=is_final,
-                        # )
-
                         # Metadata managing
                         self._meta.rows_emitted += 1
                         if self._meta.first_ts is None:

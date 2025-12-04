@@ -1,3 +1,21 @@
+"""
+Market Data Downloader & Ingestion Pipeline.
+
+This module implements a robust, audit-logged pipeline for downloading, parsing,
+sanitizing, and storing historical market data (Candles, Options) from external
+sources (primarily Binance).
+
+The pipeline consists of three stages orchestrated by `HistoricalDataService`:
+1. **Downloader**: Fetches raw ZIP archives (monthly/daily) with caching and retries.
+2. **Parser**: Extracts CSVs, parses into Polars DataFrames, and validates data integrity.
+3. **Writer**: Stores data as partitioned Parquet files and updates a global manifest.
+
+Key Features:
+- **Determinism**: Content-addressed caching (SHA256) and sorted output.
+- **Safety**: Strict validation of OHLCV ranges and timestamps.
+- **Observability**: Structured audit logs for every step (download, parse, write).
+"""
+
 from __future__ import annotations
 
 import datetime as dt
@@ -24,6 +42,13 @@ from backtester.utils.utility import month_range, target_path
 
 
 class HistoricalDataService:
+    """
+    Orchestrator for the historical data ingestion pipeline.
+
+    Connects the Downloader, Parser, and Writer components to execute
+    end-to-end data ingestion jobs.
+    """
+
     def __init__(self, run_ctx: RunContext, cfg: DownloaderConfig) -> None:
         self._ctx = run_ctx
         self._cfg = cfg
@@ -34,6 +59,7 @@ class HistoricalDataService:
         self._data_writer: Optional[WritingParquet] = None
 
     def boot(self) -> None:
+        """Initialize the component services (Downloader, Parser, Writer)."""
         self._data_dl = DownloaderFiles(run_ctx=self._ctx, cfg=self._cfg)
         self._data_ps = ParsingSanitizing(audit=self._data_dl._audit)
         self._data_writer = WritingParquet(cfg=self._cfg, audit=self._data_dl._audit)
@@ -46,6 +72,19 @@ class HistoricalDataService:
         start: dt.datetime,
         end: dt.datetime,
     ) -> tuple[ParsingReport, WriteReport]:
+        """
+        Execute the download pipeline for a specific symbol and range.
+
+        Args:
+            symbol: The trading pair (e.g., 'BTCUSDT').
+            market: Market type ('spot', 'futures', 'option').
+            timeframe: Candle interval (e.g., '1m', '1h') or 'EOHSummary' for options.
+            start: Start datetime (inclusive).
+            end: End datetime (exclusive).
+
+        Returns:
+            A tuple containing the ParsingReport and WriteReport.
+        """
         if self._data_dl is None or self._data_ps is None or self._data_writer is None:
             raise RuntimeError("Downloader not initialized. Run boot() first")
         blobs = self._data_dl.download_files(symbol, market, timeframe, start, end)
@@ -59,6 +98,15 @@ class HistoricalDataService:
 
 
 class DownloaderFiles:
+    """
+    Handles reliable HTTP downloading of raw data archives.
+
+    Features:
+    - Smart resolution of monthly vs. daily archives to minimize requests.
+    - Content-addressed caching to avoid re-downloading existing files.
+    - Deterministic retries and error handling.
+    """
+
     def __init__(self, run_ctx: RunContext, cfg: DownloaderConfig) -> None:
         self._run_ctx = run_ctx
         self._cfg = cfg
@@ -83,6 +131,12 @@ class DownloaderFiles:
     def download_files(
         self, symbol: str, market: str, timeframe: str, start: dt.datetime, end: dt.datetime
     ) -> list[RawBytes]:
+        """
+        Download all necessary archives to cover the requested time range.
+
+        Iterates through months and days, preferring monthly archives when the
+        full month is requested. Falls back to daily archives for partial months.
+        """
         # 1. Initialize Audit-Wrapper
         base_info = self._collect_base_info(symbol, market, timeframe, start, end)
         self._log("RUN_START", payload=base_info)
@@ -464,7 +518,7 @@ class DownloaderFiles:
         return h.hexdigest()
 
 
-# ------------------------- Parsing&Sanitizing -------------------------
+# ------------------------- Parsing & Sanitizing -------------------------
 
 
 class BaseArchiveParser:
@@ -479,6 +533,8 @@ class BaseArchiveParser:
 
 
 class CandleParser(BaseArchiveParser):
+    """Parser for OHLCV candle data (Spot/Futures)."""
+
     def parse(
         self, raw: RawBytes, members: Sequence[tuple[str, bytes]]
     ) -> tuple[pl.DataFrame, list[str]]:
@@ -642,6 +698,8 @@ class CandleParser(BaseArchiveParser):
 
 
 class OptionParser(BaseArchiveParser):
+    """Parser for Options EOH Summary data."""
+
     def parse(
         self, raw: RawBytes, members: Sequence[tuple[str, bytes]]
     ) -> tuple[pl.DataFrame, list[str]]:
@@ -829,6 +887,14 @@ class OptionParser(BaseArchiveParser):
 
 
 class ParsingSanitizing:
+    """
+    Parses raw archives into structured Polars DataFrames and sanitizes data.
+
+    - Supports multiple schemas (Candles, Options).
+    - Enforces data integrity (no negative prices, valid H/L ranges).
+    - Normalizes timestamps and types.
+    """
+
     def __init__(self, audit: AuditWriter) -> None:
         self._audit = audit
         self._nonneg_epsilon = 1e-7
@@ -882,6 +948,12 @@ class ParsingSanitizing:
     def parse_archives(
         self, blobs: Sequence[RawBytes]
     ) -> tuple[list[SanitizedBatch], ParsingReport]:
+        """
+        Process a sequence of downloaded raw blobs into sanitized batches.
+
+        Returns:
+            A tuple of (list of SanitizedBatch, ParsingReport).
+        """
         batches: list[SanitizedBatch] = []
         attempts = ok = skipped = errors = 0
 
@@ -1058,6 +1130,14 @@ class ParsingSanitizing:
 
 
 class WritingParquet:
+    """
+    Writes sanitized batches to disk as partitioned Parquet files.
+
+    - Atomic writes to ensure data consistency.
+    - Updates a central `manifest.parquet` index for data discovery.
+    - Partitions data by day for efficient querying.
+    """
+
     def __init__(
         self,
         cfg: DownloaderConfig,
@@ -1076,6 +1156,16 @@ class WritingParquet:
     def write_batches(
         self, batches: Sequence[SanitizedBatch], *, strict: bool = False
     ) -> WriteReport:
+        """
+        Write a sequence of sanitized batches to storage.
+
+        Args:
+            batches: List of data batches to write.
+            strict: If True, raises exceptions on write errors.
+
+        Returns:
+            WriteReport summarizing the operation.
+        """
         attempts = ok = skipped = errors = rows = partitions = 0
         manifest_rows: list[dict[str, Any]] = []
 

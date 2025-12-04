@@ -1,0 +1,18 @@
+[info]
+name = "sma_extended"
+version = "1.0.0"
+description = "SMA crossover strategy"
+
+[params]
+symbols = ["BTCUSDT", "ETHUSDT"]
+timeframe = "4h"
+fast = 20
+slow = 50
+qty = "0.01"
+allow_reentry = true
+max_positions = 3
+cooldown_bars = 12
+tp_pct = 0.06
+sl_pct = 0.12
+trail_pct = 0.03
+daily_loss_limit = 500.0
