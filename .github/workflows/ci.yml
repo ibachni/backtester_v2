@@ -37,7 +37,7 @@ jobs:
       - name: Type check (mypy)
         run: |
           mypy --version
-          mypy .
+          mypy --install-types --non-interactive .
 
       - name: Test (pytest)
         run: |
