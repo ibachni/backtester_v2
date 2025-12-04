@@ -17,6 +17,7 @@ dependencies = [
     "orjson",
     "requests",
     "pyarrow",
+    "python-binance",
 ]
 
 [project.optional-dependencies]
