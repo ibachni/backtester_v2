@@ -31,6 +31,7 @@ from backtester.data.source import ParquetCandleSource
 from backtester.errors.errors import EngineError
 from backtester.risk.order_validation import OrderValidation
 from backtester.sim.sim import ExecutionSimulator
+from backtester.sim.sim_models import SpreadPovSlippage
 from backtester.strategy.sma_extended import SMAExtendedStrategy
 from backtester.types.topics import (
     T_ACCOUNT_SNAPSHOT,
@@ -1074,7 +1075,14 @@ class BacktestEngine:
         print(f"{'Initial Capital':<{W}}: ${self._cfg.account_cfg.starting_cash:,.2f}")
 
         print("\n[SIM SETTINGS]")
-        print(f"{'Slippage':<{W}}: {self._cfg.sim_cfg.slip_model.bps} bps per side")
+        slip = self._cfg.sim_cfg.slip_model
+        if isinstance(slip, SpreadPovSlippage):
+            print(
+                f"{'Slippage':<{W}}: Spread+POV spread={slip.spread_bps} bps, k={slip.k}, "
+                f"min_vol_guard={slip.min_volume_guard}"
+            )
+        else:
+            print(f"{'Slippage':<{W}}: {slip.bps} bps per side")
 
         print("\n[SYSTEM]")
         print(f"{'Audit Log Path':<{W}}: {self._cfg.audit_cfg.log_dir}")

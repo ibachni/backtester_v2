@@ -1,4 +1,5 @@
 import itertools
+import json
 from dataclasses import replace
 from decimal import Decimal
 from typing import Any, Optional, Union
@@ -35,7 +36,7 @@ from backtester.types.types import (
 )
 from backtester.utils.utility import dec
 
-from .sim_models import LatencyModel
+from .sim_models import LatencyModel, SpreadPovSlippage
 
 """
 Design choices:
@@ -184,10 +185,24 @@ class ExecutionSimulator:
                 break
             o = st.order
 
-            # 4.1. Determine price (after slippage)
-            price = self._determine_price(st, o, candle)
+            # 4.1. Determine quantity
+            max_fill = min(st.remaining, dec(budget_left))
+            # FOK uses remaining (we already pre-checked fillability in _fok_check)
+            fill_qty = st.remaining if o.tif == TimeInForce.FOK else max_fill
+            # Quant down to avoid creating a fill that exceeds budget
+            fill_qty = fill_qty.quantize(Decimal("0.00000001"))
+            if fill_qty <= ZERO:
+                continue
+            budget_left = round(budget_left, 8)
+            if fill_qty > budget_left:
+                fill_qty = dec(budget_left).quantize(PREC)
+                if fill_qty <= ZERO:
+                    continue
 
-            # 4.2. If price is none,
+            # 4.2. Determine price (after slippage)
+            price, slip_components = self._determine_price(st, o, candle, fill_qty)
+
+            # 4.3. If price is none,
             if price is None:
                 # If IOC: Cancel
                 if o.tif == TimeInForce.IOC:
@@ -201,22 +216,8 @@ class ExecutionSimulator:
                         payload=st.order_ack,
                     )
                 continue
-            # 4.3. Determine liquidity flag (taker or maker)
+            # 4.4. Determine liquidity flag (taker or maker)
             liq_flag = self._fill_liquidity(order=o, exec_price=price, candle=candle)
-
-            # 4.4. Determine quantity
-            max_fill = min(st.remaining, dec(budget_left))
-            # FOK uses remaining (we already pre-checked fillability in _fok_check)
-            fill_qty = st.remaining if o.tif == TimeInForce.FOK else max_fill
-            # Quant down to avoid creating a fill that exceeds budget
-            fill_qty = fill_qty.quantize(Decimal("0.00000001"))
-            if fill_qty <= ZERO:
-                continue
-            budget_left = round(budget_left, 8)
-            if fill_qty > budget_left:
-                fill_qty = dec(budget_left).quantize(PREC)
-                if fill_qty <= ZERO:
-                    continue
 
             # 4.5. produce fill
             fill = Fill(
@@ -232,7 +233,7 @@ class ExecutionSimulator:
                 liquidity_flag=liq_flag,
                 fees_explicit=Decimal("0"),
                 rebates=Decimal("0"),
-                slippage_components="{}",
+                slippage_components=slip_components,
                 tags=[],
             )
 
@@ -477,8 +478,12 @@ class ExecutionSimulator:
         await self._bus.publish(T_ORDERS_CANCELED, ts_utc=self._clock.now(), payload=st.order_ack)
 
     def _determine_price(
-        self, st: OrderState, o: ValidatedOrderIntent, candle: Candle
-    ) -> Optional[Decimal]:
+        self,
+        st: OrderState,
+        o: ValidatedOrderIntent,
+        candle: Candle,
+        fill_qty: Decimal,
+    ) -> tuple[Optional[Decimal], str]:
         """
         Price can be none, if
             - LimitOrder not touched
@@ -486,14 +491,38 @@ class ExecutionSimulator:
             - StopLimit not triggered or not touched
         """
         price: Optional[Decimal] = None
+        slip_components = "{}"
         if isinstance(o, ValidatedMarketOrderIntent):
             base = self._d(candle.open)
-            price = self._slip_model.apply(side=o.side, ref_price=base)
+            price, slip_components = self._apply_slippage(
+                side=o.side, mid_price=base, fill_qty=fill_qty, bar_volume=candle.volume
+            )
         elif isinstance(o, ValidatedLimitOrderIntent) and self._limit_touched(o, candle):
             price = o.price
+            # Marketable limit (crossing) behaves like taker with slippage applied but capped by
+            # the limit price
+            if price is not None:
+                crossed = (
+                    price >= self._d(candle.open)
+                    if o.side == Side.BUY
+                    else price <= self._d(candle.open)
+                )
+                if crossed:
+                    taker_px, slip_components = self._apply_slippage(
+                        side=o.side,
+                        mid_price=self._d(candle.open),
+                        fill_qty=fill_qty,
+                        bar_volume=candle.volume,
+                    )
+                    if (o.side == Side.BUY and taker_px <= price) or (
+                        o.side == Side.SELL and taker_px >= price
+                    ):
+                        price = taker_px
         elif isinstance(o, ValidatedStopMarketOrderIntent) and self._stop_trigger(st, candle):
             initial = self._stop_market_exec_price(o, candle)
-            price = self._slip_model.apply(side=o.side, ref_price=initial)
+            price, slip_components = self._apply_slippage(
+                side=o.side, mid_price=initial, fill_qty=fill_qty, bar_volume=candle.volume
+            )
         elif (
             isinstance(o, ValidatedStopLimitOrderIntent)
             and self._stop_trigger(st, candle)
@@ -507,15 +536,36 @@ class ExecutionSimulator:
             )
             if crossed:  # behaves like a taker once stop is triggered
                 base = self._d(candle.open)
-                price = self._slip_model.apply(side=o.side, ref_price=base)
+                price, slip_components = self._apply_slippage(
+                    side=o.side, mid_price=base, fill_qty=fill_qty, bar_volume=candle.volume
+                )
+                if price is not None:
+                    if (o.side == Side.BUY and price > limit_px) or (
+                        o.side == Side.SELL and price < limit_px
+                    ):
+                        price = limit_px
             else:
                 price = limit_px  # genuine maker fill
-        return price
+        return price, slip_components
 
     # --- Utils ---
 
     def _d(self, x: Union[str, int, float]) -> Decimal:
         return x if isinstance(x, Decimal) else Decimal(str(x))
+
+    def _apply_slippage(
+        self, *, side: Side, mid_price: Decimal, fill_qty: Decimal, bar_volume: float
+    ) -> tuple[Decimal, str]:
+        """
+        Dispatch to the configured slippage model and normalize components to a JSON string.
+        """
+        if isinstance(self._slip_model, SpreadPovSlippage):
+            price, comps = self._slip_model.apply(
+                side=side, mid_price=mid_price, order_qty=fill_qty, bar_volume=bar_volume
+            )
+            return price, json.dumps(comps)
+        price = self._slip_model.apply(side=side, ref_price=mid_price)
+        return price, "{}"
 
     async def _emit_log(
         self,

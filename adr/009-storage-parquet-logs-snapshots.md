@@ -5,7 +5,7 @@ Date: 2025-09-23
 Context Version: 1.0
 
 ## Context
-Historical bar data benefits from columnar compression & predicate pushdown. Operational events (orders, fills, strategy decisions) require durable append semantics and replay support. Full DB solutions (DuckDB, SQLite) add dependencies and migration concerns prematurely.
+Operational events (orders, fills, strategy decisions) require durable append semantics and replay support. Full DB solutions add dependencies and migration concerns prematurely.
 
 ## Decision
 - Historical bars stored as Parquet under `data/history/<symbol>/<resolution>.parquet`.
@@ -19,16 +19,10 @@ Historical bar data benefits from columnar compression & predicate pushdown. Ope
 − No concurrent writers; manual compaction if logs grow large.
 
 ## Alternatives Considered
-*DuckDB for everything*: Strong candidate later for ad-hoc analytics.
-*SQLite*: Row-oriented; less optimal for column scans of bar data.
+- DuckDB, SQLite ?
 
 ## Revisit Criteria
-- Need multi-run aggregated analytics requiring SQL.
-- Performance profiling shows Parquet IO bottleneck.
+- Performance issue, multi-run analytics
 
 ## Implementation Notes
 - Use stable schema version field in snapshots.
-- Provide a manifest entry listing Parquet files & hashes for reproducibility.
-
-## Related
-Observability (005), Determinism (001), Modular Monolith (009).

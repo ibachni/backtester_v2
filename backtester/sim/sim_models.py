@@ -4,6 +4,7 @@ import random
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any, Dict, Tuple
 
 from backtester.types.types import (
     Fill,
@@ -112,6 +113,50 @@ class SlippageModel:
             return (ref_price) * (Decimal(1.0) + m)
         else:
             return Decimal(ref_price) * (Decimal(1.0) - m)
+
+
+@dataclass(frozen=True)
+class SpreadPovSlippage:
+    """
+    Spread + participation-of-volume slippage model.
+    - spread_bps: fixed spread expressed in bps of mid
+    - k: impact coefficient
+    - min_volume_guard: used when bar_volume is zero
+    """
+
+    spread_bps: float = 0.0
+    k: float = 0.0
+    min_volume_guard: float = 1.0
+
+    def apply(
+        self,
+        *,
+        side: Side,
+        mid_price: Decimal,
+        order_qty: Decimal,
+        bar_volume: float,
+    ) -> Tuple[Decimal, Dict[str, Any]]:
+        mid = Decimal(mid_price)
+        qty = abs(order_qty)
+
+        # Use guard volume to avoid division by zero
+        vol = Decimal(str(bar_volume))
+        vol_guarded = vol if vol > Decimal("0") else Decimal(str(self.min_volume_guard))
+
+        # Half-spread and impact calculations
+        half_spread = mid * Decimal(self.spread_bps) / Decimal(20_000)
+        impact = Decimal(str(self.k)) * (qty / vol_guarded)
+
+        direction = Decimal("1") if side == Side.BUY else Decimal("-1")
+        price = mid + direction * half_spread + direction * impact
+
+        components: Dict[str, Any] = {
+            "mid": float(mid),
+            "half_spread": float(half_spread),
+            "impact": float(impact),
+            "volume_used": float(vol_guarded),
+        }
+        return price, components
 
 
 class FillModel:

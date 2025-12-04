@@ -37,7 +37,7 @@ class LogEvent:
 ```
 
 ### 2. Topic
-A new topic `log.event` (or `sys.logs`) will be registered on the Bus.
+A new topic `log.event` will be registered on the Bus.
 
 ### 3. AuditWriter Logic
 The `AuditWriter` implements the subscriber interface (or simply attaches a callback via `bus.subscribe`).

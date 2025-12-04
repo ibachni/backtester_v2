@@ -54,7 +54,7 @@ Components publish and subscribe to typed topics, ensuring strict separation of 
 
 <img src="docs/images/architecture_mermaid.png" alt="Architecture Mermaid Flow Chart" width="600"/>
 
-Figure 1: Mermaid chart of the Event Flow.
+Figure 1: Mermaid chart of the Event Flow. The red lines represent a standard flow, from tick to fill.
 
 For a complete registry of topics and payloads, see [**Bus Topology & Module I/O**](docs/bus_topology.md).
 
@@ -135,6 +135,10 @@ For a complete reference implementation, see [`SMAExtendedStrategy`](backtester/
 
 
 ## 10. Project Roadmap
+## General
+- [ ] **Global Kill/flatten mechanism** [ADR 002: safety-fail-closed](adr/002-sa
+fety-fail-closed.md)
+- [ ] Include banner in stdout and logs when "allow-net=True"
 
 ### Data & Analytics
 - [ ] **Parameter Optimization:** Grid search and genetic algorithm runners for strategy tuning.
@@ -144,6 +148,7 @@ For a complete reference implementation, see [`SMAExtendedStrategy`](backtester/
 - [ ] **Live Execution Adapter:** "Paper Trading" and "Live Trading" modes connecting to real exchange APIs.
 - [ ] **Distributed Backtesting:** Parallel execution of backtests for large-scale parameter sweeps.
 - [ ] **Web Dashboard:** A lightweight UI for monitoring active backtests and visualizing results.
+- [ ] **Enable restart on crash**
 
 ## Note:
 - **Testing** The goal is to stabilize the core API. The existing Unit and property-based tests (via Hypothesis) are being migrated from v1 to ensure invariant preservation across the new event loop.

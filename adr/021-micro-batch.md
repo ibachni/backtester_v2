@@ -4,7 +4,7 @@
 Accepted
 
 ## Context
-In our previous event-driven architecture, the `BacktestEngine` and `Bus` operated in a "free-running" mode. The Engine would push market data as fast as possible, and subscribers (Strategies, Risk, Execution) would process events concurrently.
+In the previous version, an event-driven architecture, the `BacktestEngine` and `Bus` operated in a "free-running" mode. The Engine would push market data as fast as possible, and subscribers (Strategies, Risk, Execution) would process events concurrently.
 
 This introduced **non-deterministic race conditions**:
 1.  **Time Leakage:** The Engine could advance the clock to $T+1$ while a Strategy was still calculating signals for $T$.

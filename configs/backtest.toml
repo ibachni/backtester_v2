@@ -20,12 +20,13 @@ align = "outer"
 [validation]
 
 [sim]
-slippage_model = "SlippageModel"
-slippage_bps = 1
+slippage_model = "SpreadPovSlippage"
+slippage_params = { spread_bps = 5, k = 0.1, min_volume_guard = 1.0 }
 fee_model = "FixedBps"
 fee_bps = 1
 conservative_gaps = true
 participation_bps = 500
+
 
 [account]
 starting_cash = "10000"

@@ -32,7 +32,7 @@ from backtester.config.configs import (
     StrategyInfo,
     ValidationConfig,
 )
-from backtester.sim.sim_models import FixedBps, SlippageModel
+from backtester.sim.sim_models import FixedBps, SlippageModel, SpreadPovSlippage
 
 
 class LoadedConfig(BaseModel):
@@ -111,13 +111,18 @@ class ConfigLoader:
         # Instantiate models
         slip_bps = sim_data.get("slippage_bps", 0)
         fee_bps = sim_data.get("fee_bps", 0)
+        slippage_params = sim_data.get("slippage_params", {}) or {}
+        spread_bps = sim_data.get("spread_bps", slippage_params.get("spread_bps", 0))
+        pov_k = slippage_params.get("k", 0)
+        min_volume_guard = slippage_params.get("min_volume_guard", 1.0)
 
-        # Simple factory logic based on names
-        slip_model_name = sim_data.get("slippage_model", "SlippageModel")
-        if slip_model_name == "SlippageModel":
-            slip_model = SlippageModel(bps=slip_bps)
-        else:
-            slip_model = SlippageModel(bps=0)  # Default
+        slip_model = self._build_slip_model(
+            slip_model_name=sim_data.get("slippage_model", "SlippageModel"),
+            slip_bps=slip_bps,
+            spread_bps=spread_bps,
+            pov_k=pov_k,
+            min_volume_guard=min_volume_guard,
+        )
 
         fee_model_name = sim_data.get("fee_model", "FixedBps")
         if fee_model_name == "FixedBps":
@@ -175,6 +180,23 @@ class ConfigLoader:
             account_cfg=account_cfg,
             performance_cfg=performance_cfg,
         )
+
+    @staticmethod
+    def _build_slip_model(
+        *,
+        slip_model_name: str,
+        slip_bps: int,
+        spread_bps: int,
+        pov_k: float,
+        min_volume_guard: float,
+    ) -> SlippageModel | SpreadPovSlippage:
+        if slip_model_name in ("SpreadPovSlippage", "SpreadPov", "SpreadPOV"):
+            return SpreadPovSlippage(
+                spread_bps=spread_bps, k=pov_k, min_volume_guard=min_volume_guard
+            )
+        if slip_model_name == "SlippageModel":
+            return SlippageModel(bps=slip_bps)
+        return SlippageModel(bps=0)
 
     def validate(self, cfg: LoadedConfig) -> bool:
         return True

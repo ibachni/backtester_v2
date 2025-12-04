@@ -1,7 +1,7 @@
 # 023. Async Data Feeder Pipeline
 
 Date: 2025-11-22
-Status: Proposed
+Status: Accepted
 
 ## Context
 

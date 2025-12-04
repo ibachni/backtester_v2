@@ -140,7 +140,7 @@ def _apply_overrides(base_cfg: BacktestConfig, args: argparse.Namespace) -> Back
     If overrides are applied via CLI input, it should override the values provided in the tomls.
     """
     from backtester.config.configs import PerformanceConfig, StrategyConfig
-    from backtester.sim.sim_models import FixedBps, SlippageModel
+    from backtester.sim.sim_models import FixedBps, SlippageModel, SpreadPovSlippage
 
     strategy_params = _merge_strategy_params(
         base_cfg.strategy_cfg.strategy_params, args.symbols, args.params
@@ -170,8 +170,17 @@ def _apply_overrides(base_cfg: BacktestConfig, args: argparse.Namespace) -> Back
         if args.cash is not None
         else base_cfg.account_cfg.starting_cash,
     )
-
-    slip_bps = args.slippage if args.slippage is not None else base_cfg.sim_cfg.slip_model.bps
+    slip_model: SlippageModel | SpreadPovSlippage
+    base_slip_model = base_cfg.sim_cfg.slip_model
+    if isinstance(base_slip_model, SlippageModel):
+        slip_bps = args.slippage if args.slippage is not None else base_slip_model.bps
+        slip_model = SlippageModel(bps=slip_bps)
+    elif isinstance(base_slip_model, SpreadPovSlippage):
+        if args.slippage is not None:
+            raise ValueError("SpreadPovSlippage does not support --slippage override.")
+        slip_model = base_slip_model
+    else:
+        slip_model = base_slip_model
 
     fee_model = base_cfg.sim_cfg.fee_model
     if not isinstance(fee_model, FixedBps):
@@ -180,7 +189,7 @@ def _apply_overrides(base_cfg: BacktestConfig, args: argparse.Namespace) -> Back
 
     sim_cfg = replace(
         base_cfg.sim_cfg,
-        slip_model=SlippageModel(bps=slip_bps),
+        slip_model=slip_model,
         fee_model=FixedBps(bps=fee_bps),
     )
 

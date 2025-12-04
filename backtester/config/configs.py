@@ -7,13 +7,13 @@ from dataclasses import dataclass, field, fields, is_dataclass
 from decimal import Decimal
 from enum import Enum
 from pathlib import Path
-from typing import Any, Literal, Mapping, Optional
+from typing import Any, Literal, Mapping, Optional, Union
 
 from pydantic import BaseModel
 
 from backtester.core.clock import parse_timeframe
 from backtester.errors.errors import SourceError
-from backtester.sim.sim_models import FeeModel, LatencyModel, SlippageModel
+from backtester.sim.sim_models import FeeModel, LatencyModel, SlippageModel, SpreadPovSlippage
 from backtester.types.data import BinanceCandleType, CandleType
 from backtester.utils.utility import target_path
 
@@ -220,7 +220,7 @@ class StrategyConfig:
 
 @dataclass
 class SimConfig:
-    slip_model: SlippageModel
+    slip_model: Union[SlippageModel, SpreadPovSlippage]
     fee_model: FeeModel
     latency_model: Optional[LatencyModel] = None
     conservative_gaps: bool = True

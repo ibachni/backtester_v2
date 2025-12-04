@@ -8,7 +8,7 @@ Context Version: 1.0
 A full observability stack (Prometheus/Grafana) is excessive for local single-user development. Need a minimal set of high-signal metrics and alerts to diagnose performance, data gaps, and risk events.
 
 ## Decision
-Emit structured JSONL logs plus a limited metric set: `order_rtt`, `bars_lag`, `error_rate`, `pnl_intraday`. Provide three alert conditions: (1) bar gap detected, (2) order error rate above threshold, (3) daily loss halt triggered. Defer persistent time-series database until unattended operation becomes common.
+Emit structured JSONL logs plus a limited metric set. Cross-check metrics (such as events dropped, fills send and received).
 
 ## Consequences
 + Low overhead; easy to parse with simple scripts.
@@ -16,16 +16,8 @@ Emit structured JSONL logs plus a limited metric set: `order_rtt`, `bars_lag`, `
 − No historical dashboards out of the box.
 
 ## Alternatives Considered
-*Full Prom stack now*: Overkill.
 *Logs only*: Harder to threshold & alert.
 
 ## Revisit Criteria
 - Need for multi-run analytics or trend dashboards.
 - Long-running unattended live processes.
-
-## Implementation Notes
-- Metrics aggregator flush interval configurable.
-- Alerts emitted as special log events with `alert_type` field.
-
-## Related
-Observability Foundation (005), Determinism (001), Event Loop (010).
