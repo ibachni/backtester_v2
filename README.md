@@ -52,93 +52,9 @@ Components publish and subscribe to typed topics, ensuring strict separation of 
 - **Execution:** Matches sanitized orders against market data and publishes `T_FILLS`.
 - **Account:** Tracks state and publishes `T_ACCOUNT_SNAPSHOT`.
 
-```
-mermaid
----
-config:
-  theme: base
-  look: neo
-  layout: elk
----
-flowchart TB
- subgraph Orchestration["Orchestration & Time (The Tick-and-Drain Loop)"]
-    direction TB
-        Engine["Backtest Engine"]
-        Clock(("SimClock"))
-        Barrier{"Wait Until Idle"}
-        Feed["BarFeed"]
-  end
- subgraph DataIngest["Data Ingestion"]
-        Parquet[("Parquet Lake")]
-  end
- subgraph StratDomain["Strategy Domain"]
-        Strategy["Strategy Runner"]
-  end
- subgraph RiskDomain["Risk"]
-        Validation["Order Validation"]
-  end
- subgraph ExecDomain["Execution & Matching"]
-        Sim["Execution Sim"]
-  end
- subgraph AcctDomain["Accounting"]
-        Account["Account Engine"]
-  end
- subgraph EventBus["In-Memory Event Bus (Pub/Sub)"]
-    direction TB
-        StratDomain
-        RiskDomain
-        ExecDomain
-        AcctDomain
-  end
- subgraph Output["Persistence & Analytics"]
-        Audit["Audit Writer"]
-        Perf["Performance Engine"]
-        JSONL[("account.csv")]
-  end
-    Engine -- "1. Advance Time" --> Clock
-    Engine == "2. Push Data" ==> Feed
-    Engine -- "3. Await Drain" --> Barrier
-    Parquet --> Feed
-    Audit --> JSONL
-    Feed == T_CANDLES ==> Strategy
-    Feed -- T_CANDLES --> Sim & Account
-    Strategy == T_ORDERS_INTENT ==> Validation
-    Validation == T_ORDERS_SANITIZED ==> Sim
-    Validation -- T_ORDERS_REJECTED --> Strategy
-    Sim -- T_FILLS --> Strategy
-    Sim == T_FILLS ==> Account
-    Sim -- T_ORDERS_ACK --> Strategy
-    Account == T_ACCOUNT_SNAPSHOT ==> Perf
-    Account -- T_ACCOUNT_SNAPSHOT --> Audit
-    Account == T_TRADE_EVENT ==> Perf
-    Barrier -. Monitors Queue Depth .-> Strategy & Sim & Account
-Sim -.- n9
-    n9["The AuditWriter listens to the bus and logs relevant messages."]:::note
+<img src="docs/images/architecture_mermaid.png" alt="Architecture Mermaid Flow Chart" width="600"/>
 
-     Engine:::control
-     Clock:::control
-     Barrier:::control
-     Feed:::domain
-     Parquet:::storage
-     Strategy:::domain
-     Validation:::domain
-     Sim:::domain
-     Account:::domain
-     Audit:::storage
-     Perf:::domain
-     JSONL:::storage
-    classDef domain fill:#f9f9f9,stroke:#333,stroke-width:2px,color:#000
-    classDef bus fill:#e1f5fe,stroke:#01579b,stroke-width:1px,color:#000,stroke-dasharray: 5 5
-    classDef storage fill:#fff3e0,stroke:#e65100,stroke-width:2px,color:#000
-    classDef control fill:#fce4ec,stroke:#880e4f,stroke-width:2px,color:#000
-    linkStyle 1 stroke:#D50000,fill:none
-    linkStyle 5 stroke:#D50000,fill:none
-    linkStyle 8 stroke:#D50000,fill:none
-    linkStyle 9 stroke:#D50000,fill:none
-    linkStyle 12 stroke:#D50000,fill:none
-    linkStyle 14 stroke:#D50000,fill:none
-    linkStyle 16 stroke:#D50000,fill:none
-```
+Figure 1: Mermaid chart of the Event Flow.
 
 For a complete registry of topics and payloads, see [**Bus Topology & Module I/O**](docs/bus_topology.md).
 
@@ -194,7 +110,7 @@ bt --strategy sma_extended --symbols BTCUSDT ETHUSDT
 
 <img src="docs/images/backtest_screenshot.png" alt="Backtest Performance Report" width="600"/>
 
-Figure 1: Terminal output demonstrating a sanity check run using a basic SMA strategy on 4h data.
+Figure 2: Terminal output demonstrating a sanity check run using a basic SMA strategy on 4h data.
 
 Results (logs, metrics, audit trails) are automatically serialized to the runs/ directory for further analysis.
 
