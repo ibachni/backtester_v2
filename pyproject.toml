@@ -13,15 +13,20 @@ classifiers = [
 ]
 dependencies = [
     "pydantic>=2.4,<3",
-    "polars>=0.20"
+    "polars>=0.20",
+    "orjson",
+    "requests",
+    "pyarrow",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest==8.3.3",
+    "pytest-asyncio>=0.24.0",
     "mypy==1.11.2",
     "ruff==0.6.9",
     "types-setuptools",
+    "types-requests",
 ]
 
 [project.scripts]
