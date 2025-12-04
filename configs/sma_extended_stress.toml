@@ -1,0 +1,18 @@
+[info]
+name = "sma_extended-stress"
+version = "1.0.0"
+description = "High-frequency to benchmark engine event loop latency"
+
+[params]
+symbols = ["BTCUSDT", "ETHUSDT"]
+timeframe = "1m"
+fast = 5
+slow = 15
+qty = "0.001"
+allow_reentry = true
+max_positions = 10
+cooldown_bars = 0
+tp_pct = 0.003
+sl_pct = 0.002
+trail_pct = 0.001
+daily_loss_limit = 10000.0

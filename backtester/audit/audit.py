@@ -339,12 +339,12 @@ class AuditWriter:
                 self._write_json("debug.jsonl", record)
 
         # 4. REPORT
-        elif event.topic == T_REPORT:
+        if event.topic == T_REPORT:
             self._write_json("report.json", self._normalize_payload(event.payload))
 
         # 5. DATA STREAM (Market Data - JSONL)
         # High volume, (self.capture_data activated)
-        elif (
+        if (
             self.capture_market_data
             and event.topic == T_CANDLES
             and isinstance(event.payload, Candle)

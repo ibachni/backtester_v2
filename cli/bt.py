@@ -271,7 +271,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"[!] Analysis skipped (dependency missing): {exc}")
         return 0
 
-    result_dir = Path(backtest_cfg.audit_cfg.log_dir) / backtest_cfg.run_name
+    result_dir = Path(backtest_cfg.audit_cfg.log_dir) / f"{backtest_cfg.run_name}_{timestamp}"
 
     try:
         analyzer = BacktestAnalyzer(str(result_dir))
