@@ -54,11 +54,12 @@ class DataSubscriptionConfig:
     end_dt: dt.datetime
     timeframe: str
     timeframe_data: str
+    base_path: Path
+
     data_type: CandleType = BinanceCandleType()
     batch_size: int = 8192
 
     # path
-    base_path: Path = Path("/Users/nicolas/Data/crypto_data/parquet/")
     exchange: str = "binance"
     market: str = "spot"
     data_kind: str = "candle"
@@ -190,8 +191,8 @@ class StrategyConfig:
     strategy_params: Mapping[str, Any]
     start_dt: dt.datetime
     end_dt: dt.datetime
+    data_base_path: Path
     data_cfg: dict[str, DataSubscriptionConfig] = field(default_factory=dict)
-    data_base_path: Path = Path("/Users/nicolas/Data/crypto_data/parquet/")
 
     def __post_init__(self) -> None:
         if not bool(self.data_cfg):

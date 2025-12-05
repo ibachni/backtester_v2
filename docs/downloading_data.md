@@ -7,7 +7,7 @@ from backtester.config.configs import DownloaderConfig, RunContext
 from backtester.data.downloader import DownloaderFiles, ParsingSanitizing, WritingParquet
 
 # Configure your data directory
-BASE_DIR = Path("/Users/name/data/crypto_data/parquet")
+BASE_DIR = Path("data/crypto_data/parquet")
 LOG_DIR = Path("runs")
 
 def run_e2e(symbol: str, market: str, interval: str | None, start: dt.datetime, end: dt.datetime):

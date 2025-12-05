@@ -81,7 +81,9 @@ class ConfigLoader:
         if not output_dir.is_absolute():
             output_dir = Path(self._base_dir) / output_dir
 
-        data_path_raw = general_data.get("data_path", "/Users/nicolas/Data/crypto_data/parquet/")
+        data_path_raw = general_data.get("data_path", "")
+        if data_path_raw == "":
+            raise ValueError("DataPath missing")
         data_path = Path(data_path_raw)
         if not data_path.is_absolute():
             data_path = Path(self._base_dir) / data_path

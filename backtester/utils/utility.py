@@ -94,7 +94,6 @@ def target_path(
     interval: str,
     d: Optional[date] = None,
 ) -> Path:
-    # root = Path("/Users/nicolas/data/crypto_data/parquet")
     except_year = (
         root
         / f"exchange={exchange}"

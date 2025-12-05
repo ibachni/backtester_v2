@@ -162,6 +162,7 @@ def _apply_overrides(base_cfg: BacktestConfig, args: argparse.Namespace) -> Back
         strategy_params=strategy_params,
         start_dt=start_dt,
         end_dt=end_dt,
+        data_base_path=base_cfg.strategy_cfg.data_base_path,
     )
 
     account_cfg = replace(

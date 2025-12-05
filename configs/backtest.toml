@@ -3,7 +3,7 @@ run_name = "TEST"
 
 [general]
 output_dir = "runs"
-data_path = "/Users/nicolas/Data/crypto_data/parquet"
+data_path = "PLACEHOLDER"
 
 [bus]
 flush_check_interval = 0.01
