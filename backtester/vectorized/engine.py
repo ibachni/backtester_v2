@@ -308,8 +308,8 @@ class VectorizedEngine:
         position = df[self.COL_POSITION]
 
         # Basic statistics - cast to float for type safety
-        mean_ret = float(net_returns.mean())  # type: ignore[arg-type]
-        std_ret = float(net_returns.std())  # type: ignore[arg-type]
+        mean_ret = float(net_returns.mean())
+        std_ret = float(net_returns.std())
 
         # Handle edge cases
         if math.isnan(mean_ret) or math.isnan(std_ret):
@@ -321,7 +321,7 @@ class VectorizedEngine:
         # Sortino ratio (downside deviation)
         downside_returns = net_returns.filter(net_returns < 0)
         downside_std_raw = downside_returns.std() if len(downside_returns) > 1 else None
-        downside_std = float(downside_std_raw) if downside_std_raw is not None else None  # type: ignore[arg-type]
+        downside_std = float(downside_std_raw) if downside_std_raw is not None else None
         sortino = (
             (mean_ret / downside_std) * math.sqrt(self.annualization_factor)
             if downside_std and downside_std > 0
@@ -350,7 +350,7 @@ class VectorizedEngine:
         calmar = cagr / max_drawdown if max_drawdown > 0 else None
 
         # Turnover statistics
-        avg_turnover = float(turnover.mean())  # type: ignore[arg-type]
+        avg_turnover = float(turnover.mean())
         trade_count = int(turnover.filter(turnover > 0).len())
 
         # Bars in market

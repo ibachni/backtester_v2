@@ -120,8 +120,8 @@ class SMACrossoverStrategy(StrategyBase):
         self,
         fast_period: int = 20,
         slow_period: int = 50,
-        **kwargs,
-    ):
+        **kwargs: object,
+    ) -> None:
         super().__init__(**kwargs)
         self.fast_period = fast_period
         self.slow_period = slow_period
@@ -156,8 +156,8 @@ class RSIMeanReversionStrategy(StrategyBase):
         rsi_period: int = 14,
         oversold: int = 30,
         overbought: int = 70,
-        **kwargs,
-    ):
+        **kwargs: object,
+    ) -> None:
         super().__init__(**kwargs)
         self.rsi_period = rsi_period
         self.oversold = oversold
@@ -191,8 +191,8 @@ class BollingerBandStrategy(StrategyBase):
         self,
         window: int = 20,
         num_std: float = 2.0,
-        **kwargs,
-    ):
+        **kwargs: object,
+    ) -> None:
         super().__init__(**kwargs)
         self.window = window
         self.num_std = num_std
@@ -225,7 +225,7 @@ class BollingerBandStrategy(StrategyBase):
 # =============================================================================
 
 
-def main():
+def main() -> None:
     print("=" * 70)
     print("VECTORIZED BACKTESTING MODULE - END-TO-END SHOWCASE")
     print("=" * 70)
@@ -453,8 +453,8 @@ def main():
 
     # Get date range from data
     df_collected = lf.collect()
-    min_ts = int(df_collected["end_ms"].min())  # type: ignore[arg-type]
-    max_ts = int(df_collected["end_ms"].max())  # type: ignore[arg-type]
+    min_ts = int(df_collected["end_ms"].min())
+    max_ts = int(df_collected["end_ms"].max())
     start_dt = dt.datetime.fromtimestamp(min_ts / 1000, tz=dt.timezone.utc)
     end_dt = dt.datetime.fromtimestamp(max_ts / 1000, tz=dt.timezone.utc)
 
