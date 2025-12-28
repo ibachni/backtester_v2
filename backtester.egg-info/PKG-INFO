@@ -15,9 +15,13 @@ Requires-Dist: orjson
 Requires-Dist: requests
 Requires-Dist: pyarrow
 Requires-Dist: python-binance
+Requires-Dist: joblib>=1.3
+Requires-Dist: aiohttp>=3.9
 Provides-Extra: dev
 Requires-Dist: pytest==8.3.3; extra == "dev"
 Requires-Dist: pytest-asyncio>=0.24.0; extra == "dev"
+Requires-Dist: pytest-aiohttp>=1.0.0; extra == "dev"
+Requires-Dist: aioresponses>=0.7.0; extra == "dev"
 Requires-Dist: mypy==1.11.2; extra == "dev"
 Requires-Dist: ruff==0.6.9; extra == "dev"
 Requires-Dist: types-setuptools; extra == "dev"
@@ -32,7 +36,7 @@ Requires-Dist: types-requests; extra == "dev"
 [![Checked with mypy](https://www.mypy-lang.org/static/mypy_badge.svg)](https://mypy-lang.org/)
 
 ## 1. Overview
-Backtester V2 is an attempt for a high-fidelity, **event-driven** trading engine built for **crypto derivatives** (Spot, Futures, Options), however, the architecture is built to be asset-agnostic. Core features include a **deterministic** "tick-and-drain" event loop that guarantees reproducibility across runs. The backtester combines grandular tick-lvel simulation with decently a high-throughput using Polars and Parquet.
+Backtester V2 is a a high-fidelity, **event-driven** trading engine built for **crypto derivatives** (Spot, Futures, Options), however, the architecture is built to be asset-agnostic. Core features include a **deterministic** "tick-and-drain" event loop that guarantees reproducibility across runs. The backtester combines grandular tick-lvel simulation with high-throughput using Polars and Parquet (Throughput: ~68,000 events/second on M4 Pro, see full analysis under 6. Performance & Benchmarks.)
 
 ## 2. Core Architecture: The "Tick-and-Drain" Loop
 Unlike vectorized backtesters that prioritize speed over fidelity, Backtester V2 uses a strict **Tick-and-Drain** event loop ([ADR 021](adr/021-micro-batch.md)).
@@ -77,9 +81,29 @@ Components publish and subscribe to typed topics, ensuring strict separation of 
 - **Execution:** Matches sanitized orders against market data and publishes `T_FILLS`.
 - **Account:** Tracks state and publishes `T_ACCOUNT_SNAPSHOT`.
 
+<img src="docs/images/architecture_mermaid.png" alt="Architecture Mermaid Flow Chart" width="600"/>
+
+Figure 1: Mermaid chart of the Event Flow. The red lines represent a standard flow, from tick to fill.
+
 For a complete registry of topics and payloads, see [**Bus Topology & Module I/O**](docs/bus_topology.md).
 
-## 6. Getting Started
+## 6. Performance & Benchmarks
+While event-driven engines are inherently slower than vectorized simulations, Backtester V2 is optimized for high-throughput research iterations.
+
+The following benchmarks measure the "Stress Test" configuration: a high-frequency churn strategy ($T=1m$) processing tick-level state updates with full risk validation enabled.
+
+| Metric | Result | Notes |
+| :--- | :--- | :--- |
+| **Throughput** | **67,976 events/sec** | Includes signal generation, risk checks, and filling |
+| **Order Latency** | **~1,084 orders/sec** | Full lifecycle (Intent $\to$ Risk $\to$ Match $\to$ Fill) |
+| **Total Runtime** | **12 min 18 sec** | Processed 6 years (2192 days) of M1 Data |
+| **Events Processed** | **50,189,938** | Total distinct bus messages handled |
+| **Drift** | **0ms** | Strict event ordering guarantees zero look-ahead |
+
+*Hardware: MacBook M4 Pro, running on Python 3.12.*
+
+
+## 7. Getting Started
 ### Prerequisites
 - **Python 3.11+**
 - **pip**
@@ -111,78 +135,19 @@ To execute a backtest, you need a **Backtest Configuration** (engine settings `b
 bt --strategy sma_extended --symbols BTCUSDT ETHUSDT
 ```
 
-Results (logs, metrics, audit trails) will be saved to the `runs/` directory by default.
+**Console Output**: The engine provides a CLI dashboard summarizing the simulation parameters and final performance report (Tear Sheet).
 
-## 7. Data Ingestion
-Before running a backtest, you need to download historical data. Currently, this is done via a Python script using the `DownloaderFiles`, `ParsingSanitizing`, and `WritingParquet` components.
+<img src="docs/images/backtest_screenshot.png" alt="Backtest Performance Report" width="600"/>
 
-The following script demonstrates how to download Spot, Futures, and Options data from Binance, parse it, and save it to a local Parquet dataset.
+Figure 2: Terminal output demonstrating a sanity check run using a basic SMA strategy on 4h data.
 
-```python
-from pathlib import Path
-import datetime as dt
-from backtester.config.configs import DownloaderConfig, RunContext
-from backtester.data.downloader import DownloaderFiles, ParsingSanitizing, WritingParquet
+Results (logs, metrics, audit trails) are automatically logged to the runs/ directory for further analysis.
 
-# Configure your data directory
-BASE_DIR = Path("/Users/name/data/crypto_data/parquet")
-LOG_DIR = Path("runs")
+## 8. Data Ingestion
+Before running a backtest, you need to download historical data. Currently, this is done via a Python script using the `DownloaderFiles`, `ParsingSanitizing`, and `WritingParquet` components, see [Downloading](docs/downloading_data.md) for an example.
 
-def run_e2e(symbol: str, market: str, interval: str | None, start: dt.datetime, end: dt.datetime):
-    # 1) Config and services
-    run_ctx = RunContext(run_id=f"DL-{market}-{symbol}", seed=42, git_sha="HEAD", allow_net=True)
-    cfg = DownloaderConfig(base_dir=BASE_DIR, log_dir=LOG_DIR, download_run_id=run_ctx.run_id)
-    dl = DownloaderFiles(run_ctx=run_ctx, cfg=cfg)
 
-    # 2) Download → RawBytes[]
-    # For options, interval is ignored by the dataset; pass any string (e.g., "1h") or None.
-    tf = interval or "1m"
-    blobs = dl.download_files(symbol, market, tf, start, end)
-    print(f"Downloaded: {len(blobs)} blobs")
-
-    # 3) Parse & sanitize → [SanitizedBatch]
-    ps = ParsingSanitizing(audit=dl._audit)
-    batches, parse_report = ps.parse_archives(blobs)
-    print("Parse report:", parse_report)
-
-    # 4) Write Parquet (+ manifest)
-    writer = WritingParquet(cfg=cfg, audit=dl._audit)
-    write_report = writer.write_batches(batches, strict=False)
-    print("Write report:", write_report)
-
-# ---- Usage Examples ----
-
-# 1. Spot (ETHUSDC)
-run_e2e(
-    symbol="ETHUSDC",
-    market="spot",
-    interval="1m",
-    start=dt.datetime(2024, 9, 1, tzinfo=dt.timezone.utc),
-    end=dt.datetime(2024, 10, 1, tzinfo=dt.timezone.utc),
-)
-
-# 2. Futures (BTCUSDT)
-run_e2e(
-    symbol="BTCUSDT",
-    market="futures",
-    interval="1m",
-    start=dt.datetime(2024, 9, 1, tzinfo=dt.timezone.utc),
-    end=dt.datetime(2024, 10, 1, tzinfo=dt.timezone.utc),
-)
-
-# 3. Options (ETHUSDT)
-run_e2e(
-    symbol="ETHUSDT",
-    market="option",
-    interval=None,
-    start=dt.datetime(2023, 8, 1, tzinfo=dt.timezone.utc),
-    end=dt.datetime(2023, 8, 5, tzinfo=dt.timezone.utc),
-)
-```
-
-Data will be saved to `BASE_DIR` in a partitioned Parquet format (e.g., `year=YYYY/symbol-tf-YYYY-MM.parquet`).
-
-## 8. Strategy Implementation
+## 9. Strategy Implementation
 Strategies implement the [`Strategy`](backtester/strategy/base.py) abstract base class. The core logic resides in two main event hooks:
 
 - **`on_candle(self, candle: Candle) -> list[OrderIntent]`**: Called for every new candle. This is where you update indicators, check signals, and return a list of `OrderIntent` (e.g., `MarketOrderIntent`, `LimitOrderIntent`) to be executed.
@@ -198,16 +163,73 @@ For a complete reference implementation, see [`SMAExtendedStrategy`](backtester/
 
 
 
-## 9. Project Roadmap
+## 10. Project Roadmap - Up Next
+- **Crash Recovery:** Enable restart on crash by hydrating state from disk to avoid losing long-running simulations.
+- **Parameter Optimization (Optuna):** Integrate grid/Random/Optuna-based optimization to search parameter spaces efficiently.
+- **Vectorized Backtester:** Provide a fast, low-fidelity engine for quick initial screening before event-driven runs.
+- **Live Execution Adapter:** Connect the engine to exchange APIs for Paper and Live trading using the same core abstractions.
+- **Short Selling & Margin:** Add robust support for margin, funding rates, and borrowing costs for realistic derivatives strategies.
+- **Microstructure Signals** Add Support for L2/L3 data (predictive power on much shorter time horizon).
+
+
+## 11. Feature Backlog
+
+### Core Engine & Engineering
+*Focus on the "tick-and-drain" loop, execution fidelity, and system stability.*
+- [ ] **Global Kill/Flatten Mechanism:** Safety switch to close all positions immediately ([ADR 002](adr/002-safety-fail-closed.md)).
+- [ ] **Short Selling & Margin:** Support for margin management, funding rates, and borrowing costs.
+- [ ] **Latency Modelling:** Configurable oracle to inject delays between signal and execution.
+- [ ] **Order Book Reconstruction:** Support for L2 snapshots and L3 incremental updates for true liquidity modeling.
+- [ ] **Crash Recovery:** Enable restart on crash by hydrating state from disk.
+- [ ] **UX Improvements:** Banner in stdout when `allow-net=True`.
+
+### Idea Generation & Alpha Research
+*Tools for rapid prototyping and signal discovery.*
+- [ ] **Expression-Based Strategies:** Simple parser for formulas (e.g., `bt --formula "cross_over(sma(close, 50), sma(close, 200))"`).
+- [ ] **Alpha Library:** Repository of pure signal functions (return -1 to 1) to decouple signal generation from execution logic.
+- [ ] **Universe Selection Framework:** Dynamic asset selection (e.g., "Top 10 coins by volume > 200d MA").
+- [ ] **Information Coefficient (IC) Analysis:** Vectorized tool to measure correlation between signals and forward returns over time.
+- [ ] **Factor Analysis / Alpha Decay:** Track signal performance over years to detect decay.
+- [ ] **ML Integration:** Native support for XGBoost, LightGBM, CatBoost models.
+- [ ] **Statistical Arbitrage Tools:** Cointegration tests (Engle-Granger, Johansen) and spread modeling for pairs trading.
+- [ ] **Dynamic State Estimation:** Kalman Filters for adaptive hedge ratios and trend following without lag.
+- [ ] **Regime Detection:** Hidden Markov Models (HMM) to classify market states (e.g., Trending vs Mean Reverting).
+- [ ] **Microstructure Signals:** Order Flow Imbalance (OFI) and effective spread estimators.
 
 ### Data & Analytics
-- [ ] **Parameter Optimization:** Grid search and genetic algorithm runners for strategy tuning.
-- [ ] **Historical Data Splitter** Helpers to split historical data into optimization & walk forward
+*Visualization, reporting, and data management.*
+- [ ] **Parameter Optimization:** Grid search and genetic algorithm runners (with Optuna integration).
+- [ ] **Performance Attribution:** Decompose returns into Beta (market), Sector (crypto), and Alpha (skill).
+- [ ] **Trade-Entry Heatmap:** Visualize buy/sell markers on charts, color-coded by PnL.
+- [ ] **2D Parameter Grid:** Heatmap visualization of strategy performance across two parameters (e.g., Period vs Stop Loss).
+- [ ] **Reason Codes:** Log specific reasons when a strategy *declines* a trade (e.g., "Risk Limit", "Low Volatility").
+- [ ] **Historical Data Splitter:** Helpers for Train/Test/Walk-Forward splits.
+- [ ] **Vectorized Backtester:** Lightweight engine for initial quick analysis before event-driven simulation.
+- [ ] **Alternative Data:** Support for Funding Rates, Open Interest, and On-Chain metrics.
+- [ ] **Transaction Cost Analysis (TCA):** Compare execution prices against Arrival Price and VWAP benchmarks.
+
+### Robustness & Validation
+*Ensuring strategies are not overfitted.*
+- [ ] **Combinatorial Purged Cross Validation (CPCV):** Advanced splitting method to prevent look-ahead bias.
+- [ ] **Deflated Sharpe Ratio:** Adjust metrics based on the number of trials to penalize p-hacking.
+- [ ] **Synthetic Data Generation:** Test against GAN/Bootstrap generated price paths.
+- [ ] **Market Regime Classifier:** Tag periods as Bull/Bear/Crab to filter performance metrics.
+- [ ] **Monte Carlo Simulation:** Shuffle trade returns to estimate tail risk.
+- [ ] **Noise Injection:** Stress test with widened spreads, dropped ticks, and timestamp jitter.
+- [ ] **Sensitivity Analysis:** 3D surface plots to ensure parameters sit on a "plateau" of stability, not a "peak".
+
+### Portfolio & Capital Management
+- [ ] **Dynamic Position Sizing:** Kelly Criterion and Volatility Targeting.
+- [ ] **Correlation Constraints:** Limit exposure to highly correlated assets.
+- [ ] **Breakeven AUM Calculator:** Determine maximum capital capacity before alpha degrades.
+- [ ] **Portfolio Optimization:** Solvers for Mean-Variance Optimization and Hierarchical Risk Parity (HRP).
 
 ### Live Trading & Infrastructure
-- [ ] **Live Execution Adapter:** "Paper Trading" and "Live Trading" modes connecting to real exchange APIs.
-- [ ] **Distributed Backtesting:** Parallel execution of backtests for large-scale parameter sweeps.
-- [ ] **Web Dashboard:** A lightweight UI for monitoring active backtests and visualizing results.
+- [ ] **Live Execution Adapter:** Connect to exchange APIs for Paper and Live trading.
+- [ ] **Algo Execution:** TWAP, VWAP, and POV (Percentage of Volume) logic to minimize market impact.
+- [ ] **Distributed Backtesting:** Parallel execution for large-scale parameter sweeps.
+- [ ] **Web Dashboard:** UI for monitoring active backtests and results.
+- [ ] **Experiment Tracking:** Database to log results, parameters, and artifacts.
 
 ## Note:
 - **Testing** The goal is to stabilize the core API. The existing Unit and property-based tests (via Hypothesis) are being migrated from v1 to ensure invariant preservation across the new event loop.

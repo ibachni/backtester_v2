@@ -245,8 +245,6 @@ class PerformanceConfig:
 
 
 # --- Backtest aggregation ---
-
-
 @dataclass(frozen=True)
 class BacktestConfig:
     run_name: str

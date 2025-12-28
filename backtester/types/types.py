@@ -569,3 +569,152 @@ class FloatPortfolioSnapshot:
     net_exposure: float  # signed sum of market values
     fees_paid: float
     positions: tuple[FloatPositionView, ...] = field(default_factory=tuple)
+
+
+# -------- Live Market Data Types --------
+
+
+@dataclass(frozen=True, slots=True)
+class OrderBookLevel:
+    """Single price level in an order book."""
+
+    price: float
+    qty: float
+
+
+@dataclass(frozen=True, slots=True)
+class OrderBookSnapshot:
+    """L2 order book snapshot for spread/imbalance calculations."""
+
+    symbol: str
+    ts_exchange: int  # Exchange timestamp (Unix ms)
+    ts_recv: int  # Local receive timestamp (Unix ms)
+    bids: tuple[OrderBookLevel, ...]  # Best bid first (descending by price)
+    asks: tuple[OrderBookLevel, ...]  # Best ask first (ascending by price)
+    last_update_id: int  # Binance sequence number for consistency
+
+    @property
+    def best_bid(self) -> Optional[float]:
+        """Best bid price, or None if empty."""
+        return self.bids[0].price if self.bids else None
+
+    @property
+    def best_ask(self) -> Optional[float]:
+        """Best ask price, or None if empty."""
+        return self.asks[0].price if self.asks else None
+
+    @property
+    def mid_price(self) -> Optional[float]:
+        """Mid price, or None if either side is empty."""
+        if self.bids and self.asks:
+            return (self.bids[0].price + self.asks[0].price) / 2
+        return None
+
+    @property
+    def spread(self) -> Optional[float]:
+        """Absolute spread, or None if either side is empty."""
+        if self.bids and self.asks:
+            return self.asks[0].price - self.bids[0].price
+        return None
+
+    @property
+    def spread_bps(self) -> Optional[float]:
+        """Spread in basis points relative to mid price."""
+        mid = self.mid_price
+        spread = self.spread
+        if mid and spread and mid > 0:
+            return (spread / mid) * 10000
+        return None
+
+    def imbalance(self) -> Optional[float]:
+        """
+        Order book imbalance: (bid_qty - ask_qty) / (bid_qty + ask_qty).
+        Returns value in [-1, 1], or None if book is empty.
+        """
+        if not self.bids or not self.asks:
+            return None
+        bid_qty = sum(lvl.qty for lvl in self.bids)
+        ask_qty = sum(lvl.qty for lvl in self.asks)
+        total = bid_qty + ask_qty
+        if total == 0:
+            return None
+        return (bid_qty - ask_qty) / total
+
+
+@dataclass(frozen=True, slots=True)
+class FundingRateEvent:
+    """Funding rate event for perpetual futures."""
+
+    symbol: str
+    funding_rate: float  # e.g., 0.0001 for 0.01%
+    mark_price: float
+    index_price: float
+    next_funding_time: int  # Unix ms
+    ts_exchange: int  # Exchange timestamp (Unix ms)
+    ts_recv: int  # Local receive timestamp (Unix ms)
+
+    def annualized_rate(self, funding_interval_hours: int = 8) -> float:
+        """
+        Convert funding rate to annualized rate.
+        Binance funds every 8 hours (3x daily).
+        """
+        periods_per_year = (365 * 24) / funding_interval_hours
+        return self.funding_rate * periods_per_year
+
+
+@dataclass(frozen=True, slots=True)
+class TickerEvent:
+    """24hr rolling window ticker for a symbol."""
+
+    symbol: str
+    price_change: float
+    price_change_percent: float
+    weighted_avg_price: float
+    last_price: float
+    last_qty: float
+    open_price: float
+    high_price: float
+    low_price: float
+    volume: float
+    quote_volume: float
+    open_time: int  # Unix ms
+    close_time: int  # Unix ms
+    ts_recv: int  # Local receive timestamp (Unix ms)
+
+
+@dataclass(frozen=True, slots=True)
+class LiveCandle:
+    """
+    Candlestick from live WebSocket stream.
+    Extends base Candle with live-specific metadata.
+    """
+
+    symbol: str
+    timeframe: str
+    start_ms: int  # Kline open time (UTC ms)
+    end_ms: int  # Kline close time (UTC ms)
+    open: float
+    high: float
+    low: float
+    close: float
+    volume: float
+    quote_volume: float
+    trades: int
+    is_final: bool  # Whether this kline is closed
+    ts_recv: int  # Local receive timestamp (Unix ms)
+
+    def to_candle(self) -> Candle:
+        """Convert to standard Candle for compatibility with existing code."""
+        return Candle(
+            symbol=self.symbol,
+            timeframe=self.timeframe,
+            start_ms=self.start_ms,
+            end_ms=self.end_ms,
+            open=self.open,
+            high=self.high,
+            low=self.low,
+            close=self.close,
+            volume=self.volume,
+            trades=self.trades,
+            is_final=self.is_final,
+        )

@@ -8,6 +8,16 @@ that need to reference topics (e.g., audit.py, backtest_engine_new.py).
 # Market data topics
 T_CANDLES = "mkt.candles"
 
+# Live market data topics
+T_ORDERBOOK = "mkt.orderbook"
+T_FUNDING = "mkt.funding"
+T_TICKER = "mkt.ticker"
+T_TRADE = "mkt.trade"  # Raw trades
+
+# Live system topics
+T_LIVE_HEALTH = "live.health"
+T_LIVE_CONNECTION = "live.connection"
+
 # Order lifecycle topics
 T_ORDERS_INTENT = "orders.intent"
 T_ORDERS_SANITIZED = "orders.sanitized"

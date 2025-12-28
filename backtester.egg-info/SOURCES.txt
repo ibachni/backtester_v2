@@ -11,7 +11,6 @@ backtester.egg-info/top_level.txt
 backtester/audit/audit.py
 backtester/audit/monitor.py
 backtester/config/config_loader.py
-backtester/config/config_resolver.py
 backtester/config/configs.py
 backtester/core/account.py
 backtester/core/backtest_engine.py
@@ -26,6 +25,15 @@ backtester/data/feeder.py
 backtester/data/loader.py
 backtester/data/resampler.py
 backtester/data/source.py
+backtester/data/live/__init__.py
+backtester/data/live/config.py
+backtester/data/live/connection.py
+backtester/data/live/errors.py
+backtester/data/live/handlers.py
+backtester/data/live/health.py
+backtester/data/live/manager.py
+backtester/data/live/router.py
+backtester/data/live/types.py
 backtester/errors/errors.py
 backtester/risk/order_validation.py
 backtester/sim/sim.py
@@ -39,5 +47,12 @@ backtester/types/topics.py
 backtester/types/types.py
 backtester/utils/order_utility.py
 backtester/utils/utility.py
+backtester/vectorized/__init__.py
+backtester/vectorized/contracts.py
+backtester/vectorized/data_loader.py
+backtester/vectorized/engine.py
+backtester/vectorized/optimizer.py
+backtester/vectorized/strategy.py
+backtester/vectorized/wfa.py
 cli/__init__.py
 cli/bt.py

@@ -106,13 +106,13 @@ To execute a backtest, you need a **Backtest Configuration** (engine settings `b
 bt --strategy sma_extended --symbols BTCUSDT ETHUSDT
 ```
 
-**Console Output**: The engine provides a high-visibility CLI dashboard summarizing the simulation parameters and final performance report (Tear Sheet).
+**Console Output**: The engine provides a CLI dashboard summarizing the simulation parameters and final performance report (Tear Sheet).
 
 <img src="docs/images/backtest_screenshot.png" alt="Backtest Performance Report" width="600"/>
 
 Figure 2: Terminal output demonstrating a sanity check run using a basic SMA strategy on 4h data.
 
-Results (logs, metrics, audit trails) are automatically serialized to the runs/ directory for further analysis.
+Results (logs, metrics, audit trails) are automatically logged to the runs/ directory for further analysis.
 
 ## 8. Data Ingestion
 Before running a backtest, you need to download historical data. Currently, this is done via a Python script using the `DownloaderFiles`, `ParsingSanitizing`, and `WritingParquet` components, see [Downloading](docs/downloading_data.md) for an example.
@@ -134,21 +134,73 @@ For a complete reference implementation, see [`SMAExtendedStrategy`](backtester/
 
 
 
-## 10. Project Roadmap
-## General
-- [ ] **Global Kill/flatten mechanism** [ADR 002: safety-fail-closed](adr/002-sa
-fety-fail-closed.md)
-- [ ] Include banner in stdout and logs when "allow-net=True"
+## 10. Project Roadmap - Up Next
+- **Crash Recovery:** Enable restart on crash by hydrating state from disk to avoid losing long-running simulations.
+- **Parameter Optimization (Optuna):** Integrate grid/Random/Optuna-based optimization to search parameter spaces efficiently.
+- **Vectorized Backtester:** Provide a fast, low-fidelity engine for quick initial screening before event-driven runs.
+- **Live Execution Adapter:** Connect the engine to exchange APIs for Paper and Live trading using the same core abstractions.
+- **Short Selling & Margin:** Add robust support for margin, funding rates, and borrowing costs for realistic derivatives strategies.
+- **Microstructure Signals** Add Support for L2/L3 data (predictive power on much shorter time horizon).
+
+
+## 11. Feature Backlog
+
+### Core Engine & Engineering
+*Focus on the "tick-and-drain" loop, execution fidelity, and system stability.*
+- [ ] **Global Kill/Flatten Mechanism:** Safety switch to close all positions immediately ([ADR 002](adr/002-safety-fail-closed.md)).
+- [ ] **Short Selling & Margin:** Support for margin management, funding rates, and borrowing costs.
+- [ ] **Latency Modelling:** Configurable oracle to inject delays between signal and execution.
+- [ ] **Order Book Reconstruction:** Support for L2 snapshots and L3 incremental updates for true liquidity modeling.
+- [ ] **Crash Recovery:** Enable restart on crash by hydrating state from disk.
+- [ ] **UX Improvements:** Banner in stdout when `allow-net=True`.
+
+### Idea Generation & Alpha Research
+*Tools for rapid prototyping and signal discovery.*
+- [ ] **Expression-Based Strategies:** Simple parser for formulas (e.g., `bt --formula "cross_over(sma(close, 50), sma(close, 200))"`).
+- [ ] **Alpha Library:** Repository of pure signal functions (return -1 to 1) to decouple signal generation from execution logic.
+- [ ] **Universe Selection Framework:** Dynamic asset selection (e.g., "Top 10 coins by volume > 200d MA").
+- [ ] **Information Coefficient (IC) Analysis:** Vectorized tool to measure correlation between signals and forward returns over time.
+- [ ] **Factor Analysis / Alpha Decay:** Track signal performance over years to detect decay.
+- [ ] **ML Integration:** Native support for XGBoost, LightGBM, CatBoost models.
+- [ ] **Statistical Arbitrage Tools:** Cointegration tests (Engle-Granger, Johansen) and spread modeling for pairs trading.
+- [ ] **Dynamic State Estimation:** Kalman Filters for adaptive hedge ratios and trend following without lag.
+- [ ] **Regime Detection:** Hidden Markov Models (HMM) to classify market states (e.g., Trending vs Mean Reverting).
+- [ ] **Microstructure Signals:** Order Flow Imbalance (OFI) and effective spread estimators.
 
 ### Data & Analytics
-- [ ] **Parameter Optimization:** Grid search and genetic algorithm runners for strategy tuning.
-- [ ] **Historical Data Splitter** Helpers to split historical data into optimization & walk forward
+*Visualization, reporting, and data management.*
+- [ ] **Parameter Optimization:** Grid search and genetic algorithm runners (with Optuna integration).
+- [ ] **Performance Attribution:** Decompose returns into Beta (market), Sector (crypto), and Alpha (skill).
+- [ ] **Trade-Entry Heatmap:** Visualize buy/sell markers on charts, color-coded by PnL.
+- [ ] **2D Parameter Grid:** Heatmap visualization of strategy performance across two parameters (e.g., Period vs Stop Loss).
+- [ ] **Reason Codes:** Log specific reasons when a strategy *declines* a trade (e.g., "Risk Limit", "Low Volatility").
+- [ ] **Historical Data Splitter:** Helpers for Train/Test/Walk-Forward splits.
+- [ ] **Vectorized Backtester:** Lightweight engine for initial quick analysis before event-driven simulation.
+- [ ] **Alternative Data:** Support for Funding Rates, Open Interest, and On-Chain metrics.
+- [ ] **Transaction Cost Analysis (TCA):** Compare execution prices against Arrival Price and VWAP benchmarks.
+
+### Robustness & Validation
+*Ensuring strategies are not overfitted.*
+- [ ] **Combinatorial Purged Cross Validation (CPCV):** Advanced splitting method to prevent look-ahead bias.
+- [ ] **Deflated Sharpe Ratio:** Adjust metrics based on the number of trials to penalize p-hacking.
+- [ ] **Synthetic Data Generation:** Test against GAN/Bootstrap generated price paths.
+- [ ] **Market Regime Classifier:** Tag periods as Bull/Bear/Crab to filter performance metrics.
+- [ ] **Monte Carlo Simulation:** Shuffle trade returns to estimate tail risk.
+- [ ] **Noise Injection:** Stress test with widened spreads, dropped ticks, and timestamp jitter.
+- [ ] **Sensitivity Analysis:** 3D surface plots to ensure parameters sit on a "plateau" of stability, not a "peak".
+
+### Portfolio & Capital Management
+- [ ] **Dynamic Position Sizing:** Kelly Criterion and Volatility Targeting.
+- [ ] **Correlation Constraints:** Limit exposure to highly correlated assets.
+- [ ] **Breakeven AUM Calculator:** Determine maximum capital capacity before alpha degrades.
+- [ ] **Portfolio Optimization:** Solvers for Mean-Variance Optimization and Hierarchical Risk Parity (HRP).
 
 ### Live Trading & Infrastructure
-- [ ] **Live Execution Adapter:** "Paper Trading" and "Live Trading" modes connecting to real exchange APIs.
-- [ ] **Distributed Backtesting:** Parallel execution of backtests for large-scale parameter sweeps.
-- [ ] **Web Dashboard:** A lightweight UI for monitoring active backtests and visualizing results.
-- [ ] **Enable restart on crash**
+- [ ] **Live Execution Adapter:** Connect to exchange APIs for Paper and Live trading.
+- [ ] **Algo Execution:** TWAP, VWAP, and POV (Percentage of Volume) logic to minimize market impact.
+- [ ] **Distributed Backtesting:** Parallel execution for large-scale parameter sweeps.
+- [ ] **Web Dashboard:** UI for monitoring active backtests and results.
+- [ ] **Experiment Tracking:** Database to log results, parameters, and artifacts.
 
 ## Note:
 - **Testing** The goal is to stabilize the core API. The existing Unit and property-based tests (via Hypothesis) are being migrated from v1 to ensure invariant preservation across the new event loop.
