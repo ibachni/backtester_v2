@@ -247,7 +247,7 @@ def main() -> None:
     )
 
     print(f"\nGenerated {len(df)} bars of synthetic OHLCV data")
-    print(f"Date range: {df['end_ms'].min()} to {df['end_ms'].max()}")
+    print(f"Date range: {df['end_ms'].min()!r} to {df['end_ms'].max()!r}")
     print(f"Price range: ${df['close'].min():.2f} - ${df['close'].max():.2f}")
     print("\nSample data:")
     print(df.head(5))
@@ -348,7 +348,10 @@ def main() -> None:
 
     results_comparison = []
     for name, strat in strategies:
-        lf_with_signals = strat.run(lf)
+        strat_result = strat.run(lf)
+        lf_with_signals = (
+            strat_result if isinstance(strat_result, pl.LazyFrame) else strat_result[0]
+        )
         metrics = quick_backtest(lf_with_signals, fee_bps=10, slippage_bps=5)
         results_comparison.append(
             {
@@ -453,8 +456,10 @@ def main() -> None:
 
     # Get date range from data
     df_collected = lf.collect()
-    min_ts = int(df_collected["end_ms"].min())
-    max_ts = int(df_collected["end_ms"].max())
+    min_ts_raw = df_collected["end_ms"].min()
+    max_ts_raw = df_collected["end_ms"].max()
+    min_ts = int(min_ts_raw) if min_ts_raw is not None else 0
+    max_ts = int(max_ts_raw) if max_ts_raw is not None else 0
     start_dt = dt.datetime.fromtimestamp(min_ts / 1000, tz=dt.timezone.utc)
     end_dt = dt.datetime.fromtimestamp(max_ts / 1000, tz=dt.timezone.utc)
 
