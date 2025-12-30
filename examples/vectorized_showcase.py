@@ -15,6 +15,7 @@ Usage:
 from __future__ import annotations
 
 import datetime as dt
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -120,7 +121,7 @@ class SMACrossoverStrategy(StrategyBase):
         self,
         fast_period: int = 20,
         slow_period: int = 50,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.fast_period = fast_period
@@ -156,7 +157,7 @@ class RSIMeanReversionStrategy(StrategyBase):
         rsi_period: int = 14,
         oversold: int = 30,
         overbought: int = 70,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.rsi_period = rsi_period
@@ -191,7 +192,7 @@ class BollingerBandStrategy(StrategyBase):
         self,
         window: int = 20,
         num_std: float = 2.0,
-        **kwargs: object,
+        **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
         self.window = window
@@ -393,7 +394,6 @@ def main() -> None:
 
     # Define parameter grid
     from collections.abc import Sequence
-    from typing import Any
 
     param_ranges: dict[str, Sequence[Any]] = {
         "fast_period": [5, 10, 20, 30],

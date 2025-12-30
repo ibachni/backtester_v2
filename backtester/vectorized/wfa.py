@@ -655,12 +655,15 @@ class WalkForwardValidator:
         max_drawdowns: list[float] = []
 
         for wr in results:
-            if wr.test_metrics.get("sharpe") is not None:
-                sharpes.append(float(wr.test_metrics["sharpe"]))
-            if wr.test_metrics.get("total_return") is not None:
-                total_returns.append(float(wr.test_metrics["total_return"]))
-            if wr.test_metrics.get("max_drawdown") is not None:
-                max_drawdowns.append(float(wr.test_metrics["max_drawdown"]))
+            sharpe = wr.test_metrics.get("sharpe")
+            if sharpe is not None:
+                sharpes.append(float(sharpe))
+            total_return = wr.test_metrics.get("total_return")
+            if total_return is not None:
+                total_returns.append(float(total_return))
+            max_drawdown = wr.test_metrics.get("max_drawdown")
+            if max_drawdown is not None:
+                max_drawdowns.append(float(max_drawdown))
 
         aggregate: dict[str, float | int | None] = {
             "n_windows": len(results),
